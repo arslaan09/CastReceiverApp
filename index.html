@@ -235,10 +235,13 @@
       imageViewer.onload = () => { URL.revokeObjectURL(url); };
       imageViewer.src = url;
 
-      splash.classList.add('hidden');
-      videoPlayer.style.display = 'none';
-      imageViewer.classList.remove('hidden');
-      statusText.textContent = 'Showing Image';
+      // Only update classes if needed to prevent flickering
+      if (!splash.classList.contains('hidden')) splash.classList.add('hidden');
+      if (videoPlayer.style.display !== 'none') videoPlayer.style.display = 'none';
+      if (imageViewer.classList.contains('hidden')) imageViewer.classList.remove('hidden');
+
+      // Avoid spamming text updates
+      if (statusText.textContent !== 'Showing Image') statusText.textContent = 'Showing Image';
     }
 
     function startMirroring(url) {
