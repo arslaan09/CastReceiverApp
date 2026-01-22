@@ -291,6 +291,11 @@
       }
 
       videoPlayer.style.display = 'none';
+
+      // Clean up Image Viewer
+      imageViewer.classList.add('hidden');
+      imageViewer.src = ""; // Release memory
+
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
     }
