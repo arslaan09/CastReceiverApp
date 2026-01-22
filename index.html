@@ -157,37 +157,38 @@
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
     const playerManager = context.getPlayerManager();
-    
+
     const splash = document.getElementById('splash');
     const videoPlayer = document.getElementById('video-player');
     const connectionMessage = document.getElementById('connectionMessage');
     const statusText = document.getElementById('statusText');
     const statusDot = document.getElementById('statusDot');
-    
+
     const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
-    
+
     let jmuxer = null;
     let ws = null;
-    
+
     // Initialize JMuxer
     function initJMuxer() {
-        if (jmuxer) return; 
-        jmuxer = new JMuxer({
-            node: 'video-player',
-            mode: 'video',
-            flushingTime: 0,
-            fps: 60,
-            debug: false,
-            onError: function(data) {
-                console.error('Buffer error:', data);
-            }
-        });
+      if (jmuxer) return;
+      jmuxer = new JMuxer({
+        node: 'video-player',
+        mode: 'video',
+        flushingTime: 0, // 0 means flush immediately
+        clearBuffer: true, // Clear buffer on start
+        fps: 30, // Identifying correct FPS helps
+        debug: false,
+        onError: function (data) {
+          console.error('Buffer error:', data);
+        }
+      });
     }
 
     // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
       console.log('Received message:', event.data);
-      
+
       let data = event.data;
       if (typeof data === 'string') {
         try {
@@ -197,20 +198,20 @@
           return;
         }
       }
-      
+
       if (data.type === 'CONNECTION_ESTABLISHED') {
         connectionMessage.textContent = 'Connected to ' + (data.deviceName || 'iOS Device');
         statusText.textContent = 'Connection established';
         statusDot.classList.add('connected');
       }
-      
+
       if (data.type === 'START_MIRRORING') {
         const wsUrl = data.streamUrl; // Received as "ws://IP:port"
         if (wsUrl) {
           startMirroring(wsUrl);
         }
       }
-      
+
       if (data.type === 'STOP_MIRRORING') {
         stopMirroring();
       }
@@ -220,39 +221,39 @@
       console.log('Starting mirroring from:', url);
       splash.classList.add('hidden');
       videoPlayer.style.display = 'block';
-      
+
       initJMuxer();
-      
+
       if (ws) {
         ws.close();
       }
-      
+
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
-      
+
       ws.onopen = () => {
         console.log('WebSocket connected');
         statusText.textContent = 'Mirroring Active';
       };
-      
+
       ws.onmessage = (event) => {
         if (jmuxer) {
-            jmuxer.feed({
-                video: new Uint8Array(event.data)
-            });
+          jmuxer.feed({
+            video: new Uint8Array(event.data)
+          });
         }
       };
-      
+
       ws.onerror = (e) => {
         console.error('WebSocket error:', e);
         // Retry logic could go here
       };
-      
+
       ws.onclose = () => {
         console.log('WebSocket closed');
       };
     }
-    
+
     function stopMirroring() {
       if (ws) {
         ws.close();
@@ -262,12 +263,12 @@
         jmuxer.destroy();
         jmuxer = null;
       }
-      
+
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
     }
-    
+
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
     options.maxInactivity = 3600;
