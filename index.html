@@ -220,25 +220,54 @@
         stopMirroring();
       }
 
-      if (data.type === 'CAST_IMAGE') {
+      if (data.type === 'CAST_IMAGE_WS') {
         stopMirroring();
-        showImage(data.imageUrl);
+        startMirroring(data.streamUrl);
+
+        videoPlayer.style.display = 'none';
+        imageViewer.classList.remove('hidden');
+        statusText.textContent = 'Waiting for Image...';
       }
     });
 
-    function showImage(url) {
-      console.log('Showing image...');
+    function showImageBlob(blob) {
+      let url = URL.createObjectURL(blob);
+      imageViewer.onload = () => { URL.revokeObjectURL(url); };
+      imageViewer.src = url;
+
       splash.classList.add('hidden');
       videoPlayer.style.display = 'none';
-
-      if (url.startsWith('data:')) {
-        imageViewer.src = url;
-      } else {
-        imageViewer.src = url + '?t=' + new Date().getTime(); // Prevent caching
-      }
-
       imageViewer.classList.remove('hidden');
       statusText.textContent = 'Showing Image';
+    }
+
+    function startMirroring(url) {
+      console.log('Connecting to WS:', url);
+      initJMuxer();
+      if (ws) ws.close();
+
+      ws = new WebSocket(url);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => { statusText.textContent = 'Connected'; };
+
+      ws.onmessage = (event) => {
+        let data = new Uint8Array(event.data);
+        if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
+          showImageBlob(new Blob([data], { type: 'image/jpeg' }));
+        } else {
+          if (videoPlayer.style.display === 'none') {
+            videoPlayer.style.display = 'block';
+            imageViewer.classList.add('hidden');
+            splash.classList.add('hidden');
+            statusText.textContent = 'Mirroring Screen';
+          }
+          if (jmuxer) jmuxer.feed({ video: data });
+        }
+      };
+
+      ws.onerror = (e) => console.error('WS error:', e);
+      ws.onclose = () => console.log('WS closed');
     }
 
     function stopImageCasting() {
@@ -246,44 +275,7 @@
       imageViewer.src = "";
     }
 
-    function startMirroring(url) {
-      console.log('Starting mirroring from:', url);
-      stopImageCasting();
-      splash.classList.add('hidden');
-      videoPlayer.style.display = 'block';
 
-      initJMuxer();
-
-      if (ws) {
-        ws.close();
-      }
-
-      ws = new WebSocket(url);
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        // ... (rest of websocket logic)
-        console.log('WebSocket connected');
-        statusText.textContent = 'Mirroring Active';
-      };
-
-      ws.onmessage = (event) => {
-        if (jmuxer) {
-          jmuxer.feed({
-            video: new Uint8Array(event.data)
-          });
-        }
-      };
-
-      ws.onerror = (e) => {
-        console.error('WebSocket error:', e);
-        // Retry logic could go here
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket closed');
-      };
-    }
 
     function stopMirroring() {
       if (ws) {
