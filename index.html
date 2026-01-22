@@ -227,10 +227,16 @@
     });
 
     function showImage(url) {
-      console.log('Showing image:', url);
+      console.log('Showing image...');
       splash.classList.add('hidden');
       videoPlayer.style.display = 'none';
-      imageViewer.src = url + '?t=' + new Date().getTime(); // Prevent caching
+
+      if (url.startsWith('data:')) {
+        imageViewer.src = url;
+      } else {
+        imageViewer.src = url + '?t=' + new Date().getTime(); // Prevent caching
+      }
+
       imageViewer.classList.remove('hidden');
       statusText.textContent = 'Showing Image';
     }
