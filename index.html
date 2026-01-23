@@ -224,16 +224,19 @@
       }
 
       if (data.type === 'CAST_IMAGE_WS') {
-        stopMirroring();
+        cleanupMirroringConnection();
+        stopMediaCasting();
+
         startMirroring(data.streamUrl);
 
         videoPlayer.style.display = 'none';
         imageViewer.classList.remove('hidden');
+        imageViewer.style.display = 'block';
         statusText.textContent = 'Waiting for Image...';
       }
 
       if (data.type === 'CAST_VIDEO') {
-        stopMirroring();
+        cleanupMirroringConnection();
         stopImageCasting();
         playVideo(data.videoUrl);
       }
@@ -246,11 +249,16 @@
     function playVideo(url) {
       console.log("Playing video: ", url);
       splash.classList.add('hidden');
-      mediaPlayer.src = url;
+
       mediaPlayer.classList.remove('hidden');
+      mediaPlayer.style.display = 'block';
+
+      mediaPlayer.src = url;
       mediaPlayer.play();
       statusText.textContent = 'Playing Video';
-      mediaPlayer.style.display = 'block';
+
+      // Hide others
+      videoPlayer.style.display = 'none';
     }
 
     function handleMediaControl(command, value) {
@@ -275,20 +283,17 @@
       mediaPlayer.removeAttribute('src');
     }
 
-
     function showImageBlob(blob) {
       let url = URL.createObjectURL(blob);
       imageViewer.onload = () => { URL.revokeObjectURL(url); };
       imageViewer.src = url;
 
-      // Only update classes if needed to prevent flickering
       if (!splash.classList.contains('hidden')) splash.classList.add('hidden');
       if (videoPlayer.style.display !== 'none') videoPlayer.style.display = 'none';
 
       imageViewer.style.display = 'block';
       if (imageViewer.classList.contains('hidden')) imageViewer.classList.remove('hidden');
 
-      // Avoid spamming text updates
       if (statusText.textContent !== 'Showing Image') statusText.textContent = 'Showing Image';
     }
 
@@ -310,6 +315,7 @@
           if (videoPlayer.style.display === 'none') {
             videoPlayer.style.display = 'block';
             imageViewer.classList.add('hidden');
+            imageViewer.style.display = 'none';
             splash.classList.add('hidden');
             statusText.textContent = 'Mirroring Screen';
           }
@@ -323,12 +329,11 @@
 
     function stopImageCasting() {
       imageViewer.classList.add('hidden');
+      imageViewer.style.display = 'none';
       imageViewer.src = "";
     }
 
-
-
-    function stopMirroring() {
+    function cleanupMirroringConnection() {
       if (ws) {
         ws.close();
         ws = null;
@@ -337,17 +342,14 @@
         jmuxer.destroy();
         jmuxer = null;
       }
+    }
 
-      stopMediaCasting(); // Stop any regular video
+    function stopMirroring() {
+      cleanupMirroringConnection();
+      stopMediaCasting();
+      stopImageCasting();
 
       videoPlayer.style.display = 'none';
-
-      // Clean up Image Viewer (Aggressive)
-      imageViewer.style.display = 'none'; // Force hide
-      imageViewer.classList.add('hidden');
-      imageViewer.src = ""; // Release memory
-      imageViewer.removeAttribute('src');
-
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
     }
