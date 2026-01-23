@@ -261,6 +261,9 @@
         case 'seek':
           mediaPlayer.currentTime += value;
           break;
+        case 'seekTo':
+          mediaPlayer.currentTime = value;
+          break;
       }
     }
 
