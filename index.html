@@ -208,257 +208,245 @@
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 6; background: black;">
 
   <script>
-    const context = cast.framework.CastReceiverContext.getInstance();
-    const playerManager = context.getPlayerManager();
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        const context = cast.framework.CastReceiverContext.getInstance();
+        const playerManager = context.getPlayerManager();
 
-    const splash = document.getElementById('splash');
-    const videoPlayer = document.getElementById('video-player');
-    const mediaPlayer = document.getElementById('media-player');
-    const imageViewer = document.getElementById('image-viewer');
-    const audioUI = document.getElementById('audio-ui');
-    const audioTimeDisplay = document.getElementById('audioTimeDisplay');
+        const splash = document.getElementById('splash');
+        const videoPlayer = document.getElementById('video-player');
+        const mediaPlayer = document.getElementById('media-player');
+        const imageViewer = document.getElementById('image-viewer');
+        const audioUI = document.getElementById('audio-ui');
+        const audioTimeDisplay = document.getElementById('audioTimeDisplay');
 
-    const connectionMessage = document.getElementById('connectionMessage');
-    const statusText = document.getElementById('statusText');
-    const statusDot = document.getElementById('statusDot');
+        const connectionMessage = document.getElementById('connectionMessage');
+        const statusText = document.getElementById('statusText');
+        const statusDot = document.getElementById('statusDot');
 
-    const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
+        const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
 
-    let jmuxer = null;
-    let ws = null;
+        let jmuxer = null;
+        let ws = null;
 
-    // Initialize JMuxer
-    function initJMuxer() {
-      if (jmuxer) return;
-      jmuxer = new JMuxer({
-        node: 'video-player',
-        mode: 'video',
-        flushingTime: 0, // 0 means flush immediately
-        clearBuffer: true, // Clear buffer on start
-        fps: 30, // Identifying correct FPS helps
-        debug: false,
-        onError: function (data) {
-          console.error('Buffer error:', data);
+        // Initialize JMuxer
+        function initJMuxer() {
+          if (jmuxer) return;
+          if (typeof JMuxer === 'undefined') {
+            console.error("JMuxer library not loaded!");
+            return;
+          }
+          jmuxer = new JMuxer({
+            node: 'video-player',
+            mode: 'video',
+            flushingTime: 0,
+            clearBuffer: true,
+            fps: 30,
+            debug: false,
+            onError: function (data) {
+              console.error('Buffer error:', data);
+            }
+          });
         }
-      });
-    }
 
-    // Handle custom messages from sender
-    context.addCustomMessageListener(NAMESPACE, (event) => {
-      console.log('Received message:', event.data);
+        // Handle custom messages from sender
+        context.addCustomMessageListener(NAMESPACE, (event) => {
+          console.log('Received message:', event.data);
 
-      let data = event.data;
-      if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch (e) {
-          console.error('Failed to parse message:', e);
-          return;
+          let data = event.data;
+          if (typeof data === 'string') {
+            try {
+              data = JSON.parse(data);
+            } catch (e) {
+              console.error('Failed to parse message:', e);
+              return;
+            }
+          }
+
+          if (data.type === 'CONNECTION_ESTABLISHED') {
+            connectionMessage.textContent = 'Connected to ' + (data.deviceName || 'iOS Device');
+            statusText.textContent = 'Connection established';
+            statusDot.classList.add('connected');
+          }
+
+          if (data.type === 'START_MIRRORING') {
+            stopImageCasting();
+            stopMediaCasting();
+            const wsUrl = data.streamUrl;
+            if (wsUrl) {
+              startMirroring(wsUrl);
+            }
+          }
+
+          if (data.type === 'STOP_MIRRORING') {
+            stopMirroring();
+          }
+
+          if (data.type === 'CAST_IMAGE_WS') {
+            cleanupMirroringConnection();
+            stopMediaCasting();
+
+            startMirroring(data.streamUrl);
+
+            videoPlayer.style.display = 'none';
+            imageViewer.classList.remove('hidden');
+            imageViewer.style.display = 'block';
+            statusText.textContent = 'Waiting for Image...';
+          }
+
+          if (data.type === 'CAST_VIDEO') {
+            cleanupMirroringConnection();
+            stopImageCasting();
+            stopMediaCasting();
+            playVideo(data.videoUrl);
+          }
+
+          if (data.type === 'CAST_AUDIO') {
+            cleanupMirroringConnection();
+            stopImageCasting();
+            playAudio(data.audioUrl);
+          }
+
+          if (data.type === 'MEDIA_CONTROL') {
+            handleMediaControl(data.command, data.value);
+          }
+        });
+
+        function playVideo(url) {
+          console.log("Playing video: ", url);
+          splash.classList.add('hidden');
+          audioUI.classList.add('hidden');
+
+          mediaPlayer.classList.remove('hidden');
+          mediaPlayer.style.display = 'block';
+
+          mediaPlayer.src = url;
+          mediaPlayer.play().catch(e => console.error("Play video failed", e));
+          statusText.textContent = 'Playing Video';
+          videoPlayer.style.display = 'none';
         }
-      }
 
-      if (data.type === 'CONNECTION_ESTABLISHED') {
-        connectionMessage.textContent = 'Connected to ' + (data.deviceName || 'iOS Device');
-        statusText.textContent = 'Connection established';
-        statusDot.classList.add('connected');
-      }
+        function playAudio(url) {
+          console.log("Playing audio: ", url);
+          splash.classList.add('hidden');
+          audioUI.classList.remove('hidden');
 
-      if (data.type === 'START_MIRRORING') {
-        stopImageCasting();
-        stopMediaCasting();
-        const wsUrl = data.streamUrl;
-        if (wsUrl) {
-          startMirroring(wsUrl);
+          mediaPlayer.src = url;
+          mediaPlayer.play().catch(e => console.error("Play audio failed", e));
+
+          statusText.textContent = 'Playing Audio';
+          videoPlayer.style.display = 'none';
         }
-      }
 
-      if (data.type === 'STOP_MIRRORING') {
-        stopMirroring();
-      }
+        mediaPlayer.ontimeupdate = function () {
+          if (!audioUI.classList.contains('hidden')) {
+            const current = formatTime(mediaPlayer.currentTime);
+            const duration = formatTime(mediaPlayer.duration);
+            audioTimeDisplay.textContent = current + " / " + duration;
+          }
+        };
 
-      if (data.type === 'CAST_IMAGE_WS') {
-        cleanupMirroringConnection();
-        stopMediaCasting();
+        function formatTime(seconds) {
+          if (isNaN(seconds)) return "00:00";
+          let m = Math.floor(seconds / 60);
+          let s = Math.floor(seconds % 60);
+          return (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
+        }
 
-        startMirroring(data.streamUrl);
+        function handleMediaControl(command, value) {
+          if (!mediaPlayer) return;
+          switch (command) {
+            case 'play': mediaPlayer.play(); break;
+            case 'pause': mediaPlayer.pause(); break;
+            case 'seek': mediaPlayer.currentTime += value; break;
+            case 'seekTo': mediaPlayer.currentTime = value; break;
+            case 'vol_up': mediaPlayer.volume = Math.min(1, mediaPlayer.volume + 0.1); break;
+            case 'vol_down': mediaPlayer.volume = Math.max(0, mediaPlayer.volume - 0.1); break;
+          }
+        }
 
-        videoPlayer.style.display = 'none';
-        imageViewer.classList.remove('hidden');
-        imageViewer.style.display = 'block';
-        statusText.textContent = 'Waiting for Image...';
-      }
+        function stopMediaCasting() {
+          mediaPlayer.pause();
+          mediaPlayer.src = "";
+          mediaPlayer.classList.add('hidden');
+          mediaPlayer.style.display = 'none';
+          mediaPlayer.removeAttribute('src');
+          audioUI.classList.add('hidden');
+        }
 
-      if (data.type === 'CAST_VIDEO') {
-        cleanupMirroringConnection();
-        stopImageCasting();
-        stopMediaCasting();
-        playVideo(data.videoUrl);
-      }
+        function showImageBlob(blob) {
+          let url = URL.createObjectURL(blob);
+          imageViewer.onload = () => { URL.revokeObjectURL(url); };
+          imageViewer.src = url;
 
-      if (data.type === 'CAST_AUDIO') {
-        cleanupMirroringConnection();
-        stopImageCasting();
-        playAudio(data.audioUrl); // New playAudio function
-      }
+          if (!splash.classList.contains('hidden')) splash.classList.add('hidden');
+          if (videoPlayer.style.display !== 'none') videoPlayer.style.display = 'none';
+          audioUI.classList.add('hidden');
 
-      if (data.type === 'MEDIA_CONTROL') {
-        handleMediaControl(data.command, data.value);
+          imageViewer.style.display = 'block';
+          if (imageViewer.classList.contains('hidden')) imageViewer.classList.remove('hidden');
+          if (statusText.textContent !== 'Showing Image') statusText.textContent = 'Showing Image';
+        }
+
+        function startMirroring(url) {
+          console.log('Connecting to WS:', url);
+          initJMuxer();
+          if (ws) ws.close();
+
+          ws = new WebSocket(url);
+          ws.binaryType = 'arraybuffer';
+          ws.onopen = () => { statusText.textContent = 'Connected'; };
+          ws.onmessage = (event) => {
+            let data = new Uint8Array(event.data);
+            if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
+              showImageBlob(new Blob([data], { type: 'image/jpeg' }));
+            } else {
+              if (videoPlayer.style.display === 'none') {
+                videoPlayer.style.display = 'block';
+                imageViewer.classList.add('hidden');
+                imageViewer.style.display = 'none';
+                splash.classList.add('hidden');
+                audioUI.classList.add('hidden');
+                statusText.textContent = 'Mirroring Screen';
+              }
+              if (jmuxer) jmuxer.feed({ video: data });
+            }
+          };
+          ws.onerror = (e) => console.error('WS error:', e);
+          ws.onclose = () => console.log('WS closed');
+        }
+
+        function stopImageCasting() {
+          imageViewer.classList.add('hidden');
+          imageViewer.style.display = 'none';
+          imageViewer.src = "";
+        }
+
+        function cleanupMirroringConnection() {
+          if (ws) { ws.close(); ws = null; }
+          if (jmuxer) { jmuxer.destroy(); jmuxer = null; }
+        }
+
+        function stopMirroring() {
+          cleanupMirroringConnection();
+          stopMediaCasting();
+          stopImageCasting();
+          videoPlayer.style.display = 'none';
+          audioUI.classList.add('hidden');
+          splash.classList.remove('hidden');
+          statusText.textContent = 'Ready to receive';
+        }
+
+        const options = new cast.framework.CastReceiverOptions();
+        options.disableIdleTimeout = true;
+        options.maxInactivity = 3600;
+        context.start(options);
+
+      } catch (err) {
+        console.error("Critical receiver error:", err);
       }
     });
 
-    function playVideo(url) {
-      console.log("Playing video: ", url);
-      splash.classList.add('hidden');
-      audioUI.classList.add('hidden');
+</body >
 
-      mediaPlayer.classList.remove('hidden');
-      mediaPlayer.style.display = 'block';
-
-      mediaPlayer.src = url;
-      mediaPlayer.play();
-      statusText.textContent = 'Playing Video';
-
-      // Hide others
-      videoPlayer.style.display = 'none';
-    }
-
-    function playAudio(url) {
-      console.log("Playing audio: ", url);
-      splash.classList.add('hidden');
-
-      audioUI.classList.remove('hidden');
-
-      mediaPlayer.src = url;
-      mediaPlayer.play();
-
-      statusText.textContent = 'Playing Audio';
-
-      videoPlayer.style.display = 'none';
-    }
-
-    mediaPlayer.ontimeupdate = function () {
-      if (!audioUI.classList.contains('hidden')) {
-        const current = formatTime(mediaPlayer.currentTime);
-        const duration = formatTime(mediaPlayer.duration);
-        audioTimeDisplay.textContent = current + " / " + duration;
-      }
-    };
-
-    function formatTime(seconds) {
-      if (isNaN(seconds)) return "00:00";
-      let m = Math.floor(seconds / 60);
-      let s = Math.floor(seconds % 60);
-      return (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
-    }
-
-    function handleMediaControl(command, value) {
-      if (!mediaPlayer) return;
-      switch (command) {
-        case 'play': mediaPlayer.play(); break;
-        case 'pause': mediaPlayer.pause(); break;
-        case 'seek':
-          mediaPlayer.currentTime += value;
-          break;
-        case 'seekTo':
-          mediaPlayer.currentTime = value;
-          break;
-        case 'vol_up':
-          mediaPlayer.volume = Math.min(1, mediaPlayer.volume + 0.1);
-          break;
-        case 'vol_down':
-          mediaPlayer.volume = Math.max(0, mediaPlayer.volume - 0.1);
-          break;
-      }
-    }
-
-    function stopMediaCasting() {
-      mediaPlayer.pause();
-      mediaPlayer.src = "";
-      mediaPlayer.classList.add('hidden');
-      mediaPlayer.style.display = 'none';
-      mediaPlayer.removeAttribute('src');
-      audioUI.classList.add('hidden');
-    }
-
-    function showImageBlob(blob) {
-      let url = URL.createObjectURL(blob);
-      imageViewer.onload = () => { URL.revokeObjectURL(url); };
-      imageViewer.src = url;
-
-      if (!splash.classList.contains('hidden')) splash.classList.add('hidden');
-      if (videoPlayer.style.display !== 'none') videoPlayer.style.display = 'none';
-      audioUI.classList.add('hidden');
-
-      imageViewer.style.display = 'block';
-      if (imageViewer.classList.contains('hidden')) imageViewer.classList.remove('hidden');
-
-      if (statusText.textContent !== 'Showing Image') statusText.textContent = 'Showing Image';
-    }
-
-    function startMirroring(url) {
-      console.log('Connecting to WS:', url);
-      initJMuxer();
-      if (ws) ws.close();
-
-      ws = new WebSocket(url);
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => { statusText.textContent = 'Connected'; };
-
-      ws.onmessage = (event) => {
-        let data = new Uint8Array(event.data);
-        if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
-          showImageBlob(new Blob([data], { type: 'image/jpeg' }));
-        } else {
-          if (videoPlayer.style.display === 'none') {
-            videoPlayer.style.display = 'block';
-            imageViewer.classList.add('hidden');
-            imageViewer.style.display = 'none';
-            splash.classList.add('hidden');
-            audioUI.classList.add('hidden');
-            statusText.textContent = 'Mirroring Screen';
-          }
-          if (jmuxer) jmuxer.feed({ video: data });
-        }
-      };
-
-      ws.onerror = (e) => console.error('WS error:', e);
-      ws.onclose = () => console.log('WS closed');
-    }
-
-    function stopImageCasting() {
-      imageViewer.classList.add('hidden');
-      imageViewer.style.display = 'none';
-      imageViewer.src = "";
-    }
-
-    function cleanupMirroringConnection() {
-      if (ws) {
-        ws.close();
-        ws = null;
-      }
-      if (jmuxer) {
-        jmuxer.destroy();
-        jmuxer = null;
-      }
-    }
-
-    function stopMirroring() {
-      cleanupMirroringConnection();
-      stopMediaCasting();
-      stopImageCasting();
-
-      videoPlayer.style.display = 'none';
-      audioUI.classList.add('hidden');
-      splash.classList.remove('hidden');
-      statusText.textContent = 'Ready to receive';
-    }
-
-    const options = new cast.framework.CastReceiverOptions();
-    options.disableIdleTimeout = true;
-    options.maxInactivity = 3600;
-    context.start(options);
-  </script>
-</body>
-
-</html>
+</html >
