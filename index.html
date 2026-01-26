@@ -130,8 +130,47 @@
       z-index: 5;
     }
 
-    .hidden {
-      display: none !important;
+    .audio-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      z-index: 20;
+    }
+
+    .audio-icon-large {
+      font-size: 120px;
+      margin-bottom: 30px;
+      filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.3));
+      animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-20px);
+      }
+    }
+
+    .audio-time {
+      font-size: 32px;
+      color: white;
+      font-family: monospace;
+      margin-top: 20px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px 20px;
+      border-radius: 15px;
     }
   </style>
 </head>
@@ -152,6 +191,12 @@
     </div>
   </div>
 
+  <div id="audio-ui" class="audio-container hidden">
+    <div class="audio-icon-large">🎵</div>
+    <div class="title" style="margin-bottom: 10px;">Playing Audio</div>
+    <div class="audio-time" id="audioTimeDisplay">00:00 / 00:00</div>
+  </div>
+
   <video id="video-player" autoplay playsinline muted></video>
   <video id="media-player" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
@@ -166,6 +211,9 @@
     const videoPlayer = document.getElementById('video-player');
     const mediaPlayer = document.getElementById('media-player');
     const imageViewer = document.getElementById('image-viewer');
+    const audioUI = document.getElementById('audio-ui');
+    const audioTimeDisplay = document.getElementById('audioTimeDisplay');
+
     const connectionMessage = document.getElementById('connectionMessage');
     const statusText = document.getElementById('statusText');
     const statusDot = document.getElementById('statusDot');
@@ -213,6 +261,7 @@
 
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
+        stopMediaCasting();
         const wsUrl = data.streamUrl;
         if (wsUrl) {
           startMirroring(wsUrl);
@@ -238,17 +287,14 @@
       if (data.type === 'CAST_VIDEO') {
         cleanupMirroringConnection();
         stopImageCasting();
+        stopMediaCasting();
         playVideo(data.videoUrl);
       }
 
       if (data.type === 'CAST_AUDIO') {
         cleanupMirroringConnection();
         stopImageCasting();
-        playVideo(data.audioUrl);
-        statusText.textContent = 'Playing Audio';
-
-        // Optional: specific audio UI tweaks could go here
-        // e.g. show a music icon instead of black video player
+        playAudio(data.audioUrl); // New playAudio function
       }
 
       if (data.type === 'MEDIA_CONTROL') {
@@ -259,6 +305,7 @@
     function playVideo(url) {
       console.log("Playing video: ", url);
       splash.classList.add('hidden');
+      audioUI.classList.add('hidden');
 
       mediaPlayer.classList.remove('hidden');
       mediaPlayer.style.display = 'block';
@@ -269,6 +316,35 @@
 
       // Hide others
       videoPlayer.style.display = 'none';
+    }
+
+    function playAudio(url) {
+      console.log("Playing audio: ", url);
+      splash.classList.add('hidden');
+
+      audioUI.classList.remove('hidden');
+
+      mediaPlayer.src = url;
+      mediaPlayer.play();
+
+      statusText.textContent = 'Playing Audio';
+
+      videoPlayer.style.display = 'none';
+    }
+
+    mediaPlayer.ontimeupdate = function () {
+      if (!audioUI.classList.contains('hidden')) {
+        const current = formatTime(mediaPlayer.currentTime);
+        const duration = formatTime(mediaPlayer.duration);
+        audioTimeDisplay.textContent = current + " / " + duration;
+      }
+    };
+
+    function formatTime(seconds) {
+      if (isNaN(seconds)) return "00:00";
+      let m = Math.floor(seconds / 60);
+      let s = Math.floor(seconds % 60);
+      return (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
     }
 
     function handleMediaControl(command, value) {
@@ -282,6 +358,12 @@
         case 'seekTo':
           mediaPlayer.currentTime = value;
           break;
+        case 'vol_up':
+          mediaPlayer.volume = Math.min(1, mediaPlayer.volume + 0.1);
+          break;
+        case 'vol_down':
+          mediaPlayer.volume = Math.max(0, mediaPlayer.volume - 0.1);
+          break;
       }
     }
 
@@ -291,6 +373,7 @@
       mediaPlayer.classList.add('hidden');
       mediaPlayer.style.display = 'none';
       mediaPlayer.removeAttribute('src');
+      audioUI.classList.add('hidden');
     }
 
     function showImageBlob(blob) {
@@ -300,6 +383,7 @@
 
       if (!splash.classList.contains('hidden')) splash.classList.add('hidden');
       if (videoPlayer.style.display !== 'none') videoPlayer.style.display = 'none';
+      audioUI.classList.add('hidden');
 
       imageViewer.style.display = 'block';
       if (imageViewer.classList.contains('hidden')) imageViewer.classList.remove('hidden');
@@ -327,6 +411,7 @@
             imageViewer.classList.add('hidden');
             imageViewer.style.display = 'none';
             splash.classList.add('hidden');
+            audioUI.classList.add('hidden');
             statusText.textContent = 'Mirroring Screen';
           }
           if (jmuxer) jmuxer.feed({ video: data });
@@ -360,6 +445,7 @@
       stopImageCasting();
 
       videoPlayer.style.display = 'none';
+      audioUI.classList.add('hidden');
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
     }
