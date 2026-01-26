@@ -241,6 +241,16 @@
         playVideo(data.videoUrl);
       }
 
+      if (data.type === 'CAST_AUDIO') {
+        cleanupMirroringConnection();
+        stopImageCasting();
+        playVideo(data.audioUrl);
+        statusText.textContent = 'Playing Audio';
+
+        // Optional: specific audio UI tweaks could go here
+        // e.g. show a music icon instead of black video player
+      }
+
       if (data.type === 'MEDIA_CONTROL') {
         handleMediaControl(data.command, data.value);
       }
