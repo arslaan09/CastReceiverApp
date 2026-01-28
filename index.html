@@ -309,13 +309,41 @@
 
     function startMirroring(url) {
       console.log('Connecting to WS:', url);
-      initJMuxer();
-      if (ws) ws.close();
+      
+      // Always cleanup existing connections first
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+      
+      // Always recreate JMuxer for fresh decoder state
+      if (jmuxer) {
+        jmuxer.destroy();
+        jmuxer = null;
+      }
+      
+      jmuxer = new JMuxer({
+        node: 'video-player',
+        mode: 'video',
+        flushingTime: 0,
+        clearBuffer: true,
+        fps: 30,
+        debug: false,
+        onReady: function() {
+          console.log('JMuxer is ready');
+        },
+        onError: function (data) {
+          console.error('JMuxer error:', data);
+        }
+      });
 
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
 
-      ws.onopen = () => { statusText.textContent = 'Connected'; };
+      ws.onopen = () => { 
+        console.log('WebSocket connected');
+        statusText.textContent = 'Connected'; 
+      };
 
       ws.onmessage = (event) => {
         let data = new Uint8Array(event.data);
