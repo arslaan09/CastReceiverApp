@@ -307,21 +307,35 @@
       if (statusText.textContent !== 'Showing Image') statusText.textContent = 'Showing Image';
     }
 
+    let pendingUrl = null;
+    let isJMuxerReady = false;
+    let pendingData = [];
+
     function startMirroring(url) {
-      console.log('Connecting to WS:', url);
-      
+      console.log('Starting mirroring for URL:', url);
+
       // Always cleanup existing connections first
       if (ws) {
         ws.close();
         ws = null;
       }
-      
-      // Always recreate JMuxer for fresh decoder state
+
+      // Cleanup existing JMuxer
       if (jmuxer) {
         jmuxer.destroy();
         jmuxer = null;
       }
-      
+
+      isJMuxerReady = false;
+      pendingData = [];
+      pendingUrl = url;
+
+      // IMPORTANT: Show video element FIRST - browsers may not initialize MSE for hidden elements
+      videoPlayer.style.display = 'block';
+      splash.classList.add('hidden');
+      statusText.textContent = 'Initializing...';
+
+      // Create JMuxer and wait for it to be ready
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
@@ -329,35 +343,64 @@
         clearBuffer: true,
         fps: 30,
         debug: false,
-        onReady: function() {
-          console.log('JMuxer is ready');
+        onReady: function () {
+          console.log('JMuxer is ready, connecting WebSocket...');
+          isJMuxerReady = true;
+
+          // Feed any pending data
+          if (pendingData.length > 0) {
+            console.log('Feeding ' + pendingData.length + ' pending frames');
+            pendingData.forEach(d => jmuxer.feed({ video: d }));
+            pendingData = [];
+          }
+
+          // Now connect WebSocket if not already connected
+          if (!ws && pendingUrl) {
+            connectWebSocket(pendingUrl);
+          }
         },
         onError: function (data) {
           console.error('JMuxer error:', data);
         }
       });
 
+      // Also try connecting after a small fallback delay in case onReady doesn't fire
+      setTimeout(() => {
+        if (!ws && pendingUrl) {
+          console.log('Fallback: connecting WebSocket after timeout');
+          connectWebSocket(pendingUrl);
+        }
+      }, 300);
+    }
+
+    function connectWebSocket(url) {
+      if (ws) return; // Already connected
+
+      console.log('Connecting to WS:', url);
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
 
-      ws.onopen = () => { 
+      ws.onopen = () => {
         console.log('WebSocket connected');
-        statusText.textContent = 'Connected'; 
+        statusText.textContent = 'Connected';
       };
 
       ws.onmessage = (event) => {
         let data = new Uint8Array(event.data);
+        console.log('Received data:', data.length, 'bytes, first byte:', data[0]);
+
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
         } else {
-          if (videoPlayer.style.display === 'none') {
-            videoPlayer.style.display = 'block';
-            imageViewer.classList.add('hidden');
-            imageViewer.style.display = 'none';
-            splash.classList.add('hidden');
-            statusText.textContent = 'Mirroring Screen';
+          statusText.textContent = 'Mirroring Screen';
+
+          if (jmuxer && isJMuxerReady) {
+            jmuxer.feed({ video: data });
+          } else {
+            // Buffer data until JMuxer is ready
+            console.log('Buffering data until JMuxer ready');
+            pendingData.push(data);
           }
-          if (jmuxer) jmuxer.feed({ video: data });
         }
       };
 
