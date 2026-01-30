@@ -281,12 +281,13 @@
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // Create JMuxer for H.264 playback
+      // Create JMuxer for H.264 playback - LOWEST LATENCY
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 33,  // ~30fps buffer for smooth playback
+        flushingTime: 0,    // Immediate flush - no buffering
         fps: 60,
+        maxDelay: 100,      // Drop frames if > 100ms behind
         debug: false
       });
 
