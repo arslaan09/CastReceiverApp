@@ -271,7 +271,7 @@
     }
 
     // =============================================
-    // SCREEN MIRRORING - SIMPLE & EFFICIENT
+    // SCREEN MIRRORING - LOWEST LATENCY
     // =============================================
 
     function startMirroring(url) {
@@ -281,13 +281,13 @@
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // Create JMuxer for H.264 playback - LOWEST LATENCY
+      // LOWEST LATENCY settings
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 0,    // Immediate flush - no buffering
+        flushingTime: 0,
         fps: 60,
-        maxDelay: 100,      // Drop frames if > 100ms behind
+        maxDelay: 50,
         debug: false
       });
 
@@ -302,18 +302,23 @@
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
 
-        // Check for JPEG image (for image casting)
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
           return;
         }
 
-        // Feed H.264 data to JMuxer
         if (jmuxer) {
           jmuxer.feed({ video: data });
         }
 
-        // Keep video playing
+        // AGGRESSIVE LIVE-EDGE: Jump to latest frame to prevent delay accumulation
+        if (videoPlayer.buffered.length > 0) {
+          const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+          if (end - videoPlayer.currentTime > 0.3) {
+            videoPlayer.currentTime = end - 0.05;
+          }
+        }
+
         if (videoPlayer.paused) {
           videoPlayer.play().catch(() => { });
         }
