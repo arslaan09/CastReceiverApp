@@ -274,56 +274,74 @@
     // OPTIMIZED SCREEN MIRRORING IMPLEMENTATION
     // =============================================
 
+    let lastDataTime = 0;
+    let bufferCleared = true;
+    let frameCount = 0;
+
+    function createJMuxer() {
+      if (jmuxer) { jmuxer.destroy(); jmuxer = null; }
+      jmuxer = new JMuxer({
+        node: 'video-player',
+        mode: 'video',
+        flushingTime: 0,
+        fps: 60,
+        debug: false
+      });
+    }
+
     function startMirroring(url) {
-      // 1. Cleanup any existing connections
       cleanupMirroringConnection();
 
-      // 2. Show video element FIRST (required for MSE initialization)
       videoPlayer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // 3. Create JMuxer SYNCHRONOUSLY with optimized settings
-      jmuxer = new JMuxer({
-        node: 'video-player',
-        mode: 'video',
-        flushingTime: 0,        // Flush immediately for lowest latency
-        clearBuffer: true,      // Clear any stale buffer
-        fps: 60,                // Match sender FPS
-        debug: false,           // NO debug logging for performance
-        onError: (e) => {
-          // Silent error handling - don't log every error
-        }
-      });
-
-      // 4. Connect WebSocket IMMEDIATELY (don't wait for onReady)
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
+      bufferCleared = true;
+      lastDataTime = 0;
+      frameCount = 0;
 
       ws.onopen = () => {
-        statusText.textContent = 'Mirroring Screen';
-        // Force play the video element
-        videoPlayer.play().catch(() => { });
+        statusText.textContent = 'Connected';
       };
 
       ws.onmessage = (event) => {
+        const now = Date.now();
+        frameCount++;
+
+        // Create fresh JMuxer on first data or after gap (prevents replay)
+        if (bufferCleared || (lastDataTime > 0 && (now - lastDataTime) > 500)) {
+          createJMuxer();
+          bufferCleared = false;
+          videoPlayer.play().catch(() => { });
+        }
+
+        lastDataTime = now;
+
         const data = new Uint8Array(event.data);
 
-        // Check for JPEG image (for image casting)
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
           return;
         }
 
-        // Feed H.264 data directly to JMuxer
         if (jmuxer) {
           jmuxer.feed({ video: data });
         }
+
+        // Force play on every 5th frame
+        if (frameCount % 5 === 0 && videoPlayer.paused) {
+          videoPlayer.play().catch(() => { });
+        }
+
+        statusText.textContent = 'Mirroring Screen';
       };
 
       ws.onerror = () => { };
       ws.onclose = () => {
         statusText.textContent = 'Disconnected';
+        bufferCleared = true;
       };
     }
 
