@@ -175,32 +175,13 @@
     let jmuxer = null;
     let ws = null;
 
-    // Initialize JMuxer
-    function initJMuxer() {
-      if (jmuxer) return;
-      jmuxer = new JMuxer({
-        node: 'video-player',
-        mode: 'video',
-        flushingTime: 0, // 0 means flush immediately
-        clearBuffer: true, // Clear buffer on start
-        fps: 60, // Match the sender FPS
-        debug: false,
-        onError: function (data) {
-          console.error('Buffer error:', data);
-        }
-      });
-    }
-
     // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
-      console.log('Received message:', event.data);
-
       let data = event.data;
       if (typeof data === 'string') {
         try {
           data = JSON.parse(data);
         } catch (e) {
-          console.error('Failed to parse message:', e);
           return;
         }
       }
@@ -213,9 +194,8 @@
 
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
-        const wsUrl = data.streamUrl;
-        if (wsUrl) {
-          startMirroring(wsUrl);
+        if (data.streamUrl) {
+          startMirroring(data.streamUrl);
         }
       }
 
@@ -226,9 +206,7 @@
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroringConnection();
         stopMediaCasting();
-
         startMirroring(data.streamUrl);
-
         videoPlayer.style.display = 'none';
         imageViewer.classList.remove('hidden');
         imageViewer.style.display = 'block';
@@ -246,9 +224,6 @@
         stopImageCasting();
         playVideo(data.audioUrl);
         statusText.textContent = 'Playing Audio';
-
-        // Optional: specific audio UI tweaks could go here
-        // e.g. show a music icon instead of black video player
       }
 
       if (data.type === 'MEDIA_CONTROL') {
@@ -257,17 +232,12 @@
     });
 
     function playVideo(url) {
-      console.log("Playing video: ", url);
       splash.classList.add('hidden');
-
       mediaPlayer.classList.remove('hidden');
       mediaPlayer.style.display = 'block';
-
       mediaPlayer.src = url;
       mediaPlayer.play();
       statusText.textContent = 'Playing Video';
-
-      // Hide others
       videoPlayer.style.display = 'none';
     }
 
@@ -276,12 +246,8 @@
       switch (command) {
         case 'play': mediaPlayer.play(); break;
         case 'pause': mediaPlayer.pause(); break;
-        case 'seek':
-          mediaPlayer.currentTime += value;
-          break;
-        case 'seekTo':
-          mediaPlayer.currentTime = value;
-          break;
+        case 'seek': mediaPlayer.currentTime += value; break;
+        case 'seekTo': mediaPlayer.currentTime = value; break;
       }
     }
 
@@ -297,117 +263,68 @@
       let url = URL.createObjectURL(blob);
       imageViewer.onload = () => { URL.revokeObjectURL(url); };
       imageViewer.src = url;
-
       if (!splash.classList.contains('hidden')) splash.classList.add('hidden');
       if (videoPlayer.style.display !== 'none') videoPlayer.style.display = 'none';
-
       imageViewer.style.display = 'block';
       if (imageViewer.classList.contains('hidden')) imageViewer.classList.remove('hidden');
-
       if (statusText.textContent !== 'Showing Image') statusText.textContent = 'Showing Image';
     }
 
-    let pendingUrl = null;
-    let isJMuxerReady = false;
-    let pendingData = [];
+    // =============================================
+    // OPTIMIZED SCREEN MIRRORING IMPLEMENTATION
+    // =============================================
 
     function startMirroring(url) {
-      console.log('Starting mirroring for URL:', url);
+      // 1. Cleanup any existing connections
+      cleanupMirroringConnection();
 
-      // Always cleanup existing connections first
-      if (ws) {
-        ws.close();
-        ws = null;
-      }
-
-      // Cleanup existing JMuxer
-      if (jmuxer) {
-        jmuxer.destroy();
-        jmuxer = null;
-      }
-
-      isJMuxerReady = false;
-      pendingData = [];
-      pendingUrl = url;
-
-      // IMPORTANT: Show video element FIRST - browsers may not initialize MSE for hidden elements
+      // 2. Show video element FIRST (required for MSE initialization)
       videoPlayer.style.display = 'block';
       splash.classList.add('hidden');
-      statusText.textContent = 'Initializing...';
+      statusText.textContent = 'Connecting...';
 
-      // Create JMuxer and wait for it to be ready
+      // 3. Create JMuxer SYNCHRONOUSLY with optimized settings
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 0,
-        clearBuffer: true,
-        fps: 60,
-        debug: false,
-        onReady: function () {
-          console.log('JMuxer is ready, connecting WebSocket...');
-          isJMuxerReady = true;
-
-          // Feed any pending data
-          if (pendingData.length > 0) {
-            console.log('Feeding ' + pendingData.length + ' pending frames');
-            pendingData.forEach(d => jmuxer.feed({ video: d }));
-            pendingData = [];
-          }
-
-          // Now connect WebSocket if not already connected
-          if (!ws && pendingUrl) {
-            connectWebSocket(pendingUrl);
-          }
-        },
-        onError: function (data) {
-          console.error('JMuxer error:', data);
+        flushingTime: 0,        // Flush immediately for lowest latency
+        clearBuffer: true,      // Clear any stale buffer
+        fps: 60,                // Match sender FPS
+        debug: false,           // NO debug logging for performance
+        onError: (e) => {
+          // Silent error handling - don't log every error
         }
       });
 
-      // Also try connecting after a small fallback delay in case onReady doesn't fire
-      setTimeout(() => {
-        if (!ws && pendingUrl) {
-          console.log('Fallback: connecting WebSocket after timeout');
-          connectWebSocket(pendingUrl);
-        }
-      }, 300);
-    }
-
-    function connectWebSocket(url) {
-      if (ws) return; // Already connected
-
-      console.log('Connecting to WS:', url);
+      // 4. Connect WebSocket IMMEDIATELY (don't wait for onReady)
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
-        console.log('WebSocket connected');
-        statusText.textContent = 'Connected';
-        // Ensure video is playing
-        videoPlayer.play().catch(e => console.log('Autoplay blocked:', e));
+        statusText.textContent = 'Mirroring Screen';
+        // Force play the video element
+        videoPlayer.play().catch(() => { });
       };
 
       ws.onmessage = (event) => {
-        let data = new Uint8Array(event.data);
-        console.log('Received data:', data.length, 'bytes, first byte:', data[0]);
+        const data = new Uint8Array(event.data);
 
+        // Check for JPEG image (for image casting)
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
-        } else {
-          statusText.textContent = 'Mirroring Screen';
+          return;
+        }
 
-          if (jmuxer && isJMuxerReady) {
-            jmuxer.feed({ video: data });
-          } else {
-            // Buffer data until JMuxer is ready
-            console.log('Buffering data until JMuxer ready');
-            pendingData.push(data);
-          }
+        // Feed H.264 data directly to JMuxer
+        if (jmuxer) {
+          jmuxer.feed({ video: data });
         }
       };
 
-      ws.onerror = (e) => console.error('WS error:', e);
-      ws.onclose = () => console.log('WS closed');
+      ws.onerror = () => { };
+      ws.onclose = () => {
+        statusText.textContent = 'Disconnected';
+      };
     }
 
     function stopImageCasting() {
@@ -418,6 +335,7 @@
 
     function cleanupMirroringConnection() {
       if (ws) {
+        ws.onclose = null; // Prevent status update on manual close
         ws.close();
         ws = null;
       }
@@ -431,12 +349,12 @@
       cleanupMirroringConnection();
       stopMediaCasting();
       stopImageCasting();
-
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
     }
 
+    // Start Cast Receiver
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
     options.maxInactivity = 3600;
