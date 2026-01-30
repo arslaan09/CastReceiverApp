@@ -275,11 +275,18 @@
     // =============================================
 
     let lastDataTime = 0;
-    let bufferCleared = true;
+    let needsReset = true;
     let frameCount = 0;
+    let monitor = null;
+    let lastPlayPos = 0;
+    let stallCount = 0;
 
     function createJMuxer() {
       if (jmuxer) { jmuxer.destroy(); jmuxer = null; }
+      // Clear video src to fully reset
+      videoPlayer.removeAttribute('src');
+      videoPlayer.load();
+
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
@@ -298,22 +305,50 @@
 
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
-      bufferCleared = true;
+      needsReset = true;
       lastDataTime = 0;
       frameCount = 0;
+      lastPlayPos = 0;
+      stallCount = 0;
 
       ws.onopen = () => {
         statusText.textContent = 'Connected';
+
+        // Monitor for stalls and keep at live edge
+        if (monitor) clearInterval(monitor);
+        monitor = setInterval(() => {
+          // Detect stall
+          if (!videoPlayer.paused && videoPlayer.currentTime === lastPlayPos && lastDataTime > 0) {
+            stallCount++;
+            if (stallCount > 3) {
+              statusText.textContent = 'Stall detected, resetting...';
+              needsReset = true;
+              stallCount = 0;
+            }
+          } else {
+            stallCount = 0;
+          }
+          lastPlayPos = videoPlayer.currentTime;
+
+          // Keep at live edge
+          if (!videoPlayer.paused && videoPlayer.buffered.length > 0) {
+            const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+            if (end - videoPlayer.currentTime > 1) {
+              videoPlayer.currentTime = end - 0.1;
+            }
+          }
+        }, 100);
       };
 
       ws.onmessage = (event) => {
         const now = Date.now();
         frameCount++;
 
-        // Create fresh JMuxer on first data or after gap (prevents replay)
-        if (bufferCleared || (lastDataTime > 0 && (now - lastDataTime) > 500)) {
+        // Reset JMuxer if needed
+        const gap = lastDataTime > 0 && (now - lastDataTime) > 500;
+        if (needsReset || gap) {
           createJMuxer();
-          bufferCleared = false;
+          needsReset = false;
           videoPlayer.play().catch(() => { });
         }
 
@@ -330,8 +365,8 @@
           jmuxer.feed({ video: data });
         }
 
-        // Force play on every 5th frame
-        if (frameCount % 5 === 0 && videoPlayer.paused) {
+        // Force play periodically
+        if (frameCount % 10 === 0 && videoPlayer.paused) {
           videoPlayer.play().catch(() => { });
         }
 
@@ -341,7 +376,8 @@
       ws.onerror = () => { };
       ws.onclose = () => {
         statusText.textContent = 'Disconnected';
-        bufferCleared = true;
+        needsReset = true;
+        if (monitor) { clearInterval(monitor); monitor = null; }
       };
     }
 
