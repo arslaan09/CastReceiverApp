@@ -5,7 +5,6 @@
   <meta charset="UTF-8">
   <title>Screen Mirror Receiver</title>
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-  <!-- JMuxer for low-latency raw H.264 playback via WebSocket -->
   <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
   <style>
     * {
@@ -174,16 +173,13 @@
 
     let jmuxer = null;
     let ws = null;
+    let liveEdgeInterval = null;
 
     // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
       let data = event.data;
       if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch (e) {
-          return;
-        }
+        try { data = JSON.parse(data); } catch (e) { return; }
       }
 
       if (data.type === 'CONNECTION_ESTABLISHED') {
@@ -194,14 +190,10 @@
 
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
-        if (data.streamUrl) {
-          startMirroring(data.streamUrl);
-        }
+        if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
-      if (data.type === 'STOP_MIRRORING') {
-        stopMirroring();
-      }
+      if (data.type === 'STOP_MIRRORING') stopMirroring();
 
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroringConnection();
@@ -226,9 +218,7 @@
         statusText.textContent = 'Playing Audio';
       }
 
-      if (data.type === 'MEDIA_CONTROL') {
-        handleMediaControl(data.command, data.value);
-      }
+      if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
     });
 
     function playVideo(url) {
@@ -256,22 +246,21 @@
       mediaPlayer.src = "";
       mediaPlayer.classList.add('hidden');
       mediaPlayer.style.display = 'none';
-      mediaPlayer.removeAttribute('src');
     }
 
     function showImageBlob(blob) {
       let url = URL.createObjectURL(blob);
-      imageViewer.onload = () => { URL.revokeObjectURL(url); };
+      imageViewer.onload = () => URL.revokeObjectURL(url);
       imageViewer.src = url;
-      if (!splash.classList.contains('hidden')) splash.classList.add('hidden');
-      if (videoPlayer.style.display !== 'none') videoPlayer.style.display = 'none';
+      splash.classList.add('hidden');
+      videoPlayer.style.display = 'none';
       imageViewer.style.display = 'block';
-      if (imageViewer.classList.contains('hidden')) imageViewer.classList.remove('hidden');
-      if (statusText.textContent !== 'Showing Image') statusText.textContent = 'Showing Image';
+      imageViewer.classList.remove('hidden');
+      statusText.textContent = 'Showing Image';
     }
 
     // =============================================
-    // SCREEN MIRRORING - LOWEST LATENCY
+    // ULTRA LOW LATENCY MIRRORING
     // =============================================
 
     function startMirroring(url) {
@@ -281,14 +270,18 @@
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // LOWEST LATENCY settings
+      // Create JMuxer with ULTRA LOW LATENCY settings
+      // clearBuffer: true removes old data aggressively
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 0,
-        fps: 60,
-        maxDelay: 50,
-        debug: false
+        flushingTime: 0,      // Immediate - no buffering
+        clearBuffer: true,    // Clear old buffer data
+        fps: 30,
+        debug: false,
+        onReady: () => {
+          videoPlayer.play().catch(() => { });
+        }
       });
 
       ws = new WebSocket(url);
@@ -297,40 +290,40 @@
       ws.onopen = () => {
         statusText.textContent = 'Mirroring Screen';
         videoPlayer.play().catch(() => { });
+
+        // Start aggressive live-edge maintenance every 200ms
+        liveEdgeInterval = setInterval(() => {
+          if (videoPlayer.buffered.length > 0) {
+            const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+            const lag = end - videoPlayer.currentTime;
+            // If more than 200ms behind, jump to live edge
+            if (lag > 0.2) {
+              videoPlayer.currentTime = end - 0.03;
+            }
+          }
+          if (videoPlayer.paused) {
+            videoPlayer.play().catch(() => { });
+          }
+        }, 200);
       };
 
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
 
+        // JPEG image check
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
           return;
         }
 
+        // Feed to JMuxer immediately
         if (jmuxer) {
           jmuxer.feed({ video: data });
         }
-
-        // AGGRESSIVE LIVE-EDGE: Jump to latest frame to prevent delay accumulation
-        if (videoPlayer.buffered.length > 0) {
-          const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-          if (end - videoPlayer.currentTime > 0.3) {
-            videoPlayer.currentTime = end - 0.05;
-          }
-        }
-
-        if (videoPlayer.paused) {
-          videoPlayer.play().catch(() => { });
-        }
       };
 
-      ws.onerror = () => {
-        statusText.textContent = 'Connection Error';
-      };
-
-      ws.onclose = () => {
-        statusText.textContent = 'Disconnected';
-      };
+      ws.onerror = () => statusText.textContent = 'Connection Error';
+      ws.onclose = () => statusText.textContent = 'Disconnected';
     }
 
     function stopImageCasting() {
@@ -340,8 +333,12 @@
     }
 
     function cleanupMirroringConnection() {
+      if (liveEdgeInterval) {
+        clearInterval(liveEdgeInterval);
+        liveEdgeInterval = null;
+      }
       if (ws) {
-        ws.onclose = null; // Prevent status update on manual close
+        ws.onclose = null;
         ws.close();
         ws = null;
       }
