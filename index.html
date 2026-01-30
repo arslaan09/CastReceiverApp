@@ -271,30 +271,8 @@
     }
 
     // =============================================
-    // OPTIMIZED SCREEN MIRRORING IMPLEMENTATION
+    // SCREEN MIRRORING - SIMPLE & EFFICIENT
     // =============================================
-
-    let lastDataTime = 0;
-    let needsReset = true;
-    let frameCount = 0;
-    let monitor = null;
-    let lastPlayPos = 0;
-    let stallCount = 0;
-
-    function createJMuxer() {
-      if (jmuxer) { jmuxer.destroy(); jmuxer = null; }
-      // Clear video src to fully reset
-      videoPlayer.removeAttribute('src');
-      videoPlayer.load();
-
-      jmuxer = new JMuxer({
-        node: 'video-player',
-        mode: 'video',
-        flushingTime: 0,
-        fps: 60,
-        debug: false
-      });
-    }
 
     function startMirroring(url) {
       cleanupMirroringConnection();
@@ -303,81 +281,49 @@
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
+      // Create JMuxer for H.264 playback
+      jmuxer = new JMuxer({
+        node: 'video-player',
+        mode: 'video',
+        flushingTime: 33,  // ~30fps buffer for smooth playback
+        fps: 60,
+        debug: false
+      });
+
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
-      needsReset = true;
-      lastDataTime = 0;
-      frameCount = 0;
-      lastPlayPos = 0;
-      stallCount = 0;
 
       ws.onopen = () => {
-        statusText.textContent = 'Connected';
-
-        // Monitor for stalls and keep at live edge
-        if (monitor) clearInterval(monitor);
-        monitor = setInterval(() => {
-          // Detect stall
-          if (!videoPlayer.paused && videoPlayer.currentTime === lastPlayPos && lastDataTime > 0) {
-            stallCount++;
-            if (stallCount > 3) {
-              statusText.textContent = 'Stall detected, resetting...';
-              needsReset = true;
-              stallCount = 0;
-            }
-          } else {
-            stallCount = 0;
-          }
-          lastPlayPos = videoPlayer.currentTime;
-
-          // Keep at live edge
-          if (!videoPlayer.paused && videoPlayer.buffered.length > 0) {
-            const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-            if (end - videoPlayer.currentTime > 1) {
-              videoPlayer.currentTime = end - 0.1;
-            }
-          }
-        }, 100);
+        statusText.textContent = 'Mirroring Screen';
+        videoPlayer.play().catch(() => { });
       };
 
       ws.onmessage = (event) => {
-        const now = Date.now();
-        frameCount++;
-
-        // Reset JMuxer if needed
-        const gap = lastDataTime > 0 && (now - lastDataTime) > 500;
-        if (needsReset || gap) {
-          createJMuxer();
-          needsReset = false;
-          videoPlayer.play().catch(() => { });
-        }
-
-        lastDataTime = now;
-
         const data = new Uint8Array(event.data);
 
+        // Check for JPEG image (for image casting)
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
           return;
         }
 
+        // Feed H.264 data to JMuxer
         if (jmuxer) {
           jmuxer.feed({ video: data });
         }
 
-        // Force play periodically
-        if (frameCount % 10 === 0 && videoPlayer.paused) {
+        // Keep video playing
+        if (videoPlayer.paused) {
           videoPlayer.play().catch(() => { });
         }
-
-        statusText.textContent = 'Mirroring Screen';
       };
 
-      ws.onerror = () => { };
+      ws.onerror = () => {
+        statusText.textContent = 'Connection Error';
+      };
+
       ws.onclose = () => {
         statusText.textContent = 'Disconnected';
-        needsReset = true;
-        if (monitor) { clearInterval(monitor); monitor = null; }
       };
     }
 
