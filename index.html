@@ -291,20 +291,20 @@
         statusText.textContent = 'Mirroring Screen';
         videoPlayer.play().catch(() => { });
 
-        // Start aggressive live-edge maintenance every 200ms
+        // Gentle live-edge maintenance every 500ms - only seek if significantly behind
         liveEdgeInterval = setInterval(() => {
           if (videoPlayer.buffered.length > 0) {
             const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const lag = end - videoPlayer.currentTime;
-            // If more than 200ms behind, jump to live edge
-            if (lag > 0.2) {
-              videoPlayer.currentTime = end - 0.03;
+            // Only seek if more than 500ms behind to prevent blinking
+            if (lag > 0.5) {
+              videoPlayer.currentTime = end - 0.1;  // Stay 100ms behind edge
             }
           }
           if (videoPlayer.paused) {
             videoPlayer.play().catch(() => { });
           }
-        }, 200);
+        }, 500);  // Check every 500ms instead of 200ms
       };
 
       ws.onmessage = (event) => {
