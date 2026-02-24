@@ -151,7 +151,7 @@
     </div>
   </div>
 
-  <video id="video-player" autoplay playsinline muted></video>
+  <video id="video-player" autoplay playsinline muted disableRemotePlayback></video>
   <video id="media-player" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
@@ -271,6 +271,18 @@
     // =============================================
 
     function startMirroring(url) {
+      // CRITICAL FIX: If already mirroring with the SAME URL, don't destroy and rebuild.
+      // This prevents the TV from blinking every time the sender re-sends START_MIRRORING
+      // (e.g., on tap, foreground/background transitions, Cast session resume).
+      if (currentStreamUrl === url && ws && ws.readyState === WebSocket.OPEN && jmuxer) {
+        // Already connected to this stream - just ensure video is visible and playing
+        videoPlayer.style.display = 'block';
+        splash.classList.add('hidden');
+        statusText.textContent = 'Mirroring Screen';
+        videoPlayer.play().catch(() => { });
+        return;
+      }
+
       cleanupMirroringConnection();
       
       currentStreamUrl = url;  // Save for reconnection
@@ -320,22 +332,23 @@
         reconnectAttempts = 0;  // Reset on successful connect
         videoPlayer.play().catch(() => { });
 
-        // Start aggressive live-edge maintenance every 100ms
+        // Start live-edge maintenance every 200ms (balanced between latency and CPU usage)
         if (liveEdgeInterval) clearInterval(liveEdgeInterval);
         liveEdgeInterval = setInterval(() => {
           if (videoPlayer.buffered.length > 0) {
             const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const lag = end - videoPlayer.currentTime;
-            // If more than 150ms behind live edge, jump forward
-            if (lag > 0.15) {
-              videoPlayer.currentTime = end - 0.02;
+            // If more than 300ms behind live edge, jump forward
+            // Too aggressive jumping (e.g., 150ms) causes visible stutters
+            if (lag > 0.3) {
+              videoPlayer.currentTime = end - 0.05;
             }
           }
           // Ensure video is always playing
           if (videoPlayer.paused) {
             videoPlayer.play().catch(() => { });
           }
-        }, 100);
+        }, 200);
 
         // WebSocket keepalive ping every 15 seconds to prevent idle timeout
         if (wsPingInterval) clearInterval(wsPingInterval);
