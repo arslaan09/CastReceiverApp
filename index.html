@@ -151,7 +151,7 @@
     </div>
   </div>
 
-  <video id="video-player" autoplay playsinline muted disableRemotePlayback></video>
+  <video id="video-player" autoplay playsinline muted></video>
   <video id="media-player" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
@@ -174,11 +174,6 @@
     let jmuxer = null;
     let ws = null;
     let liveEdgeInterval = null;
-    let currentStreamUrl = null;  // Track current URL for reconnection
-    let reconnectAttempts = 0;
-    let reconnectTimer = null;
-    let wsPingInterval = null;
-    const MAX_RECONNECT_ATTEMPTS = 50;  // Allow many reconnects for long sessions
 
     // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
@@ -243,6 +238,7 @@
         case 'pause': mediaPlayer.pause(); break;
         case 'seek':
         case 'seekTo':
+          // iOS sends absolute seek position (seconds from start)
           mediaPlayer.currentTime = value;
           break;
       }
@@ -267,156 +263,71 @@
     }
 
     // =============================================
-    // ULTRA LOW LATENCY MIRRORING WITH RECONNECTION
+    // ULTRA LOW LATENCY MIRRORING
     // =============================================
 
     function startMirroring(url) {
-      // CRITICAL FIX: If already mirroring with the SAME URL, don't destroy and rebuild.
-      // This prevents the TV from blinking every time the sender re-sends START_MIRRORING
-      // (e.g., on tap, foreground/background transitions, Cast session resume).
-      if (currentStreamUrl === url && ws && ws.readyState === WebSocket.OPEN && jmuxer) {
-        // Already connected to this stream - just ensure video is visible and playing
-        videoPlayer.style.display = 'block';
-        splash.classList.add('hidden');
-        statusText.textContent = 'Mirroring Screen';
-        videoPlayer.play().catch(() => { });
-        return;
-      }
-
       cleanupMirroringConnection();
-      
-      currentStreamUrl = url;  // Save for reconnection
-      reconnectAttempts = 0;
 
       videoPlayer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // Create JMuxer with optimized low-latency settings
+      // Create JMuxer with ULTRA LOW LATENCY settings
+      // clearBuffer: true removes old data aggressively
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 0,      // Immediate flush - no buffering delay
-        clearBuffer: true,    // Aggressively clear old buffer data
+        flushingTime: 0,      // Immediate - no buffering
+        clearBuffer: true,    // Clear old buffer data
         fps: 30,
-        maxDelay: 0,          // No max delay tolerance
         debug: false,
         onReady: () => {
           videoPlayer.play().catch(() => { });
-        },
-        onError: (err) => {
-          // JMuxer decode error - try to recover by seeking to live edge
-          if (videoPlayer.buffered.length > 0) {
-            const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-            videoPlayer.currentTime = end;
-          }
         }
       });
-
-      connectWebSocket(url);
-    }
-
-    function connectWebSocket(url) {
-      if (ws) {
-        ws.onclose = null;
-        ws.onerror = null;
-        ws.close();
-        ws = null;
-      }
 
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
         statusText.textContent = 'Mirroring Screen';
-        reconnectAttempts = 0;  // Reset on successful connect
         videoPlayer.play().catch(() => { });
 
-        // Start live-edge maintenance every 200ms (balanced between latency and CPU usage)
-        if (liveEdgeInterval) clearInterval(liveEdgeInterval);
+        // Start aggressive live-edge maintenance every 200ms
         liveEdgeInterval = setInterval(() => {
           if (videoPlayer.buffered.length > 0) {
             const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const lag = end - videoPlayer.currentTime;
-            // If more than 300ms behind live edge, jump forward
-            // Too aggressive jumping (e.g., 150ms) causes visible stutters
-            if (lag > 0.3) {
-              videoPlayer.currentTime = end - 0.05;
+            // If more than 200ms behind, jump to live edge
+            if (lag > 0.2) {
+              videoPlayer.currentTime = end - 0.03;
             }
           }
-          // Ensure video is always playing
           if (videoPlayer.paused) {
             videoPlayer.play().catch(() => { });
           }
         }, 200);
-
-        // WebSocket keepalive ping every 15 seconds to prevent idle timeout
-        if (wsPingInterval) clearInterval(wsPingInterval);
-        wsPingInterval = setInterval(() => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            try {
-              ws.send(new Uint8Array([0x70, 0x69, 0x6E, 0x67])); // "ping" as binary
-            } catch (e) { /* ignore */ }
-          }
-        }, 15000);
       };
 
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
 
-        // JPEG image check (starts with FF D8)
+        // JPEG image check
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
           return;
         }
 
-        // Feed H.264 data to JMuxer immediately
+        // Feed to JMuxer immediately
         if (jmuxer) {
           jmuxer.feed({ video: data });
         }
       };
 
-      ws.onerror = () => {
-        statusText.textContent = 'Connection Error';
-      };
-
-      ws.onclose = () => {
-        statusText.textContent = 'Reconnecting...';
-        if (wsPingInterval) { clearInterval(wsPingInterval); wsPingInterval = null; }
-        
-        // Auto-reconnect with exponential backoff
-        if (currentStreamUrl && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-          reconnectAttempts++;
-          // Backoff: 500ms, 1s, 2s, 3s, max 5s
-          const delay = Math.min(5000, 500 * Math.pow(1.5, Math.min(reconnectAttempts - 1, 5)));
-          reconnectTimer = setTimeout(() => {
-            if (currentStreamUrl) {
-              connectWebSocket(currentStreamUrl);
-            }
-          }, delay);
-        } else {
-          statusText.textContent = 'Disconnected';
-        }
-      };
+      ws.onerror = () => statusText.textContent = 'Connection Error';
+      ws.onclose = () => statusText.textContent = 'Disconnected';
     }
-
-    // Handle video playback errors (stalled, decode errors)
-    videoPlayer.addEventListener('error', () => {
-      // Try to recover by seeking to live edge
-      if (videoPlayer.buffered.length > 0) {
-        const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-        videoPlayer.currentTime = end;
-      }
-    });
-
-    videoPlayer.addEventListener('stalled', () => {
-      // Video stalled - seek to latest available data
-      if (videoPlayer.buffered.length > 0) {
-        const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-        videoPlayer.currentTime = end;
-        videoPlayer.play().catch(() => { });
-      }
-    });
 
     function stopImageCasting() {
       imageViewer.classList.add('hidden');
@@ -425,24 +336,12 @@
     }
 
     function cleanupMirroringConnection() {
-      currentStreamUrl = null;  // Prevent reconnection
-      reconnectAttempts = 0;
-      
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
       if (liveEdgeInterval) {
         clearInterval(liveEdgeInterval);
         liveEdgeInterval = null;
       }
-      if (wsPingInterval) {
-        clearInterval(wsPingInterval);
-        wsPingInterval = null;
-      }
       if (ws) {
-        ws.onclose = null;  // Prevent reconnection on intentional close
-        ws.onerror = null;
+        ws.onclose = null;
         ws.close();
         ws = null;
       }
@@ -464,7 +363,7 @@
     // Start Cast Receiver
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.maxInactivity = 86400;  // 24 hours - prevent auto-disconnect
+    options.maxInactivity = 86400;  // 24 hours - prevent auto-disconnect during long sessions
     context.start(options);
   </script>
 </body>
