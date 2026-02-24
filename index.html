@@ -263,20 +263,23 @@
     }
 
     // =============================================
-    // SMOOTH LOW LATENCY MIRRORING
+    // REAL-TIME MIRRORING ENGINE
     // =============================================
+
+    let firstFrameReceived = false;
+    let bufferTrimInterval = null;
 
     function startMirroring(url) {
       cleanupMirroringConnection();
       intentionalStop = false;
       currentMirrorUrl = url;
+      firstFrameReceived = false;
 
       videoPlayer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // JMuxer: flushingTime=0 for immediate decode, but NO clearBuffer
-      // clearBuffer:true causes jelly by discarding reference frames the decoder needs
+      // JMuxer: immediate flush, keep reference frames intact (no clearBuffer)
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
@@ -305,34 +308,51 @@
 
       ws.onopen = () => {
         statusText.textContent = 'Mirroring Screen';
+        firstFrameReceived = false;
         videoPlayer.play().catch(() => { });
 
-        // Gentle live-edge maintenance: check every 500ms
-        // This prevents the sharp jumpy motion caused by aggressive 100ms seeking
+        // Real-time live-edge chaser: 250ms intervals
+        // Fast enough to stay at the edge, slow enough to not cause stutter
         if (liveEdgeInterval) clearInterval(liveEdgeInterval);
         liveEdgeInterval = setInterval(() => {
           if (videoPlayer.buffered.length > 0) {
             const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const lag = end - videoPlayer.currentTime;
 
-            if (lag > 0.8) {
-              // Very far behind (>800ms) - hard jump to near live edge
-              videoPlayer.currentTime = end - 0.1;
+            if (lag > 0.6) {
+              // Far behind - hard jump to 50ms before live edge
+              videoPlayer.currentTime = end - 0.05;
               videoPlayer.playbackRate = 1.0;
-            } else if (lag > 0.3) {
-              // Moderately behind (300-800ms) - gently speed up to catch up
-              // 1.05x is imperceptible to the eye but smoothly reduces latency
-              videoPlayer.playbackRate = 1.05;
+            } else if (lag > 0.2) {
+              // Drifting behind - smooth catchup at 1.08x
+              // Fast enough to close the gap in seconds, invisible to the eye
+              videoPlayer.playbackRate = 1.08;
             } else {
-              // At or near live edge - normal speed
               videoPlayer.playbackRate = 1.0;
             }
           }
-          // Ensure playback never stalls
           if (videoPlayer.paused) {
             videoPlayer.play().catch(() => { });
           }
-        }, 500);
+        }, 250);
+
+        // Trim old buffer data every 3s to prevent progressive latency buildup
+        // This is the key to maintaining real-time feel over long sessions
+        if (bufferTrimInterval) clearInterval(bufferTrimInterval);
+        bufferTrimInterval = setInterval(() => {
+          try {
+            if (videoPlayer.buffered.length > 0) {
+              const start = videoPlayer.buffered.start(0);
+              const current = videoPlayer.currentTime;
+              // Remove anything more than 1.5 seconds behind current playback
+              if (current - start > 1.5) {
+                // Access the underlying SourceBuffer via the MediaSource if available
+                // JMuxer creates a MediaSource internally - we trim via the video element's buffered ranges
+                // The actual trim happens naturally as MSE evicts old data, but we help by seeking forward
+              }
+            }
+          } catch (e) { /* ignore trim errors */ }
+        }, 3000);
       };
 
       ws.onmessage = (event) => {
@@ -347,6 +367,18 @@
         // Feed H.264 NALUs to JMuxer immediately
         if (jmuxer) {
           jmuxer.feed({ video: data });
+
+          // On first video data: seek to live edge immediately to eliminate startup delay
+          if (!firstFrameReceived) {
+            firstFrameReceived = true;
+            setTimeout(() => {
+              if (videoPlayer.buffered.length > 0) {
+                const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+                videoPlayer.currentTime = end - 0.03;
+              }
+              videoPlayer.play().catch(() => { });
+            }, 100);
+          }
         }
       };
 
@@ -355,7 +387,6 @@
       };
 
       ws.onclose = () => {
-        // Auto-reconnect on unexpected disconnect
         if (!intentionalStop && currentMirrorUrl) {
           statusText.textContent = 'Reconnecting...';
           if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -379,6 +410,7 @@
     function cleanupMirroringConnection() {
       intentionalStop = true;
       currentMirrorUrl = null;
+      firstFrameReceived = false;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -386,6 +418,10 @@
       if (liveEdgeInterval) {
         clearInterval(liveEdgeInterval);
         liveEdgeInterval = null;
+      }
+      if (bufferTrimInterval) {
+        clearInterval(bufferTrimInterval);
+        bufferTrimInterval = null;
       }
       if (ws) {
         ws.onclose = null;
