@@ -278,8 +278,8 @@
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 100,      // 100ms micro-buffer: enough for decoder, won't accumulate
-        clearBuffer: true,       // Discard old data to prevent latency buildup
+        flushingTime: 0,        // Feed to decoder instantly — no internal buffering
+        clearBuffer: false,      // CRITICAL: Never discard reference frames — this causes pixel overlap
         fps: 30,
         debug: false,
         onReady: () => {
@@ -310,14 +310,22 @@
           if (videoPlayer.buffered.length > 0) {
             const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const lag = end - videoPlayer.currentTime;
-            if (lag > 0.5) {
-              videoPlayer.currentTime = end - 0.1;
+            // Keep playback pinned to live edge without clearing reference frames
+            if (lag > 0.4) {
+              // Jump to near-live when >400ms behind
+              videoPlayer.currentTime = end - 0.05;
+              videoPlayer.playbackRate = 1.0;
+            } else if (lag > 0.2) {
+              // Gently speed up to close small gaps
+              videoPlayer.playbackRate = 1.05;
+            } else {
+              videoPlayer.playbackRate = 1.0;
             }
           }
           if (videoPlayer.paused) {
             videoPlayer.play().catch(() => { });
           }
-        }, 500);
+        }, 300);
       };
 
       ws.onmessage = (event) => {
