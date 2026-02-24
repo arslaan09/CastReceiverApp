@@ -263,7 +263,7 @@
     }
 
     // =============================================
-    // SMOOTH LOW LATENCY MIRRORING
+    // SCREEN MIRRORING
     // =============================================
 
     function startMirroring(url) {
@@ -275,13 +275,11 @@
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // JMuxer: flushingTime=0 for immediate decode, but NO clearBuffer
-      // clearBuffer:true causes jelly by discarding reference frames the decoder needs
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 0,
-        clearBuffer: false,
+        flushingTime: 100,      // 100ms micro-buffer: enough for decoder, won't accumulate
+        clearBuffer: true,       // Discard old data to prevent latency buildup
         fps: 30,
         debug: false,
         onReady: () => {
@@ -307,28 +305,15 @@
         statusText.textContent = 'Mirroring Screen';
         videoPlayer.play().catch(() => { });
 
-        // Gentle live-edge maintenance: check every 500ms
-        // This prevents the sharp jumpy motion caused by aggressive 100ms seeking
         if (liveEdgeInterval) clearInterval(liveEdgeInterval);
         liveEdgeInterval = setInterval(() => {
           if (videoPlayer.buffered.length > 0) {
             const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const lag = end - videoPlayer.currentTime;
-
-            if (lag > 0.8) {
-              // Very far behind (>800ms) - hard jump to near live edge
+            if (lag > 0.5) {
               videoPlayer.currentTime = end - 0.1;
-              videoPlayer.playbackRate = 1.0;
-            } else if (lag > 0.3) {
-              // Moderately behind (300-800ms) - gently speed up to catch up
-              // 1.05x is imperceptible to the eye but smoothly reduces latency
-              videoPlayer.playbackRate = 1.05;
-            } else {
-              // At or near live edge - normal speed
-              videoPlayer.playbackRate = 1.0;
             }
           }
-          // Ensure playback never stalls
           if (videoPlayer.paused) {
             videoPlayer.play().catch(() => { });
           }
@@ -338,24 +323,19 @@
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
 
-        // JPEG image check
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
           return;
         }
 
-        // Feed H.264 NALUs to JMuxer immediately
         if (jmuxer) {
           jmuxer.feed({ video: data });
         }
       };
 
-      ws.onerror = () => {
-        statusText.textContent = 'Connection Error';
-      };
+      ws.onerror = () => statusText.textContent = 'Connection Error';
 
       ws.onclose = () => {
-        // Auto-reconnect on unexpected disconnect
         if (!intentionalStop && currentMirrorUrl) {
           statusText.textContent = 'Reconnecting...';
           if (reconnectTimer) clearTimeout(reconnectTimer);
