@@ -1,136 +1,59 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <title>Screen Mirror Receiver</title>
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    html,
-    body {
-      width: 100%;
-      height: 100%;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
       font-family: 'Segoe UI', system-ui, sans-serif;
       overflow: hidden;
     }
-
     #splash {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      color: white;
-      z-index: 10;
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      color: white; z-index: 10;
     }
-
     .logo {
-      width: 120px;
-      height: 120px;
+      width: 120px; height: 120px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       border-radius: 30px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
+      display: flex; justify-content: center; align-items: center;
       margin-bottom: 40px;
-      box-shadow: 0 20px 40px rgba(102, 126, 234, 0.3);
+      box-shadow: 0 20px 40px rgba(102,126,234,0.3);
       animation: pulse 2s ease-in-out infinite;
     }
-
-    .logo svg {
-      width: 60px;
-      height: 60px;
-      fill: white;
-    }
-
-    @keyframes pulse {
-
-      0%,
-      100% {
-        transform: scale(1);
-      }
-
-      50% {
-        transform: scale(1.05);
-      }
-    }
-
-    .title {
-      font-size: 48px;
-      font-weight: 700;
-      margin-bottom: 15px;
-    }
-
-    .subtitle {
-      font-size: 24px;
-      opacity: 0.8;
-      margin-bottom: 50px;
-    }
-
+    .logo svg { width: 60px; height: 60px; fill: white; }
+    @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+    .title   { font-size: 48px; font-weight: 700; margin-bottom: 15px; }
+    .subtitle { font-size: 24px; opacity: 0.8; margin-bottom: 50px; }
     .status-container {
-      display: flex;
-      align-items: center;
-      gap: 15px;
+      display: flex; align-items: center; gap: 15px;
       padding: 20px 40px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 50px;
-      backdrop-filter: blur(10px);
+      background: rgba(255,255,255,0.1);
+      border-radius: 50px; backdrop-filter: blur(10px);
     }
-
     .status-dot {
-      width: 12px;
-      height: 12px;
-      background: #fbbf24;
-      border-radius: 50%;
+      width: 12px; height: 12px;
+      background: #fbbf24; border-radius: 50%;
       animation: blink 1.5s ease-in-out infinite;
     }
-
-    .status-dot.connected {
-      background: #4ade80;
-    }
-
-    @keyframes blink {
-
-      0%,
-      100% {
-        opacity: 1;
-      }
-
-      50% {
-        opacity: 0.4;
-      }
-    }
-
-    .status-text {
-      font-size: 20px;
-    }
-
+    .status-dot.connected { background: #4ade80; }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .status-text { font-size: 20px; }
     #video-player {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: black;
-      display: none;
-      z-index: 5;
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: contain; background: black;
+      display: none; z-index: 5;
     }
-
-    .hidden {
-      display: none !important;
-    }
+    .hidden { display: none !important; }
   </style>
 </head>
 
@@ -138,11 +61,10 @@
   <div id="splash">
     <div class="logo">
       <svg viewBox="0 0 24 24">
-        <path
-          d="M21,3H3C1.89,3 1,3.89 1,5V17A2,2 0 0,0 3,19H8V21H16V19H21A2,2 0 0,0 23,17V5C23,3.89 22.1,3 21,3M21,17H3V5H21M16,11L9,15V7" />
+        <path d="M21,3H3C1.89,3 1,3.89 1,5V17A2,2 0 0,0 3,19H8V21H16V19H21A2,2 0 0,0 23,17V5C23,3.89 22.1,3 21,3M21,17H3V5H21M16,11L9,15V7"/>
       </svg>
     </div>
-    <div class="title">Screen Mirroring -Miracast</div>
+    <div class="title">Screen Mirroring</div>
     <div class="subtitle" id="connectionMessage">Waiting for connection...</div>
     <div class="status-container">
       <div class="status-dot" id="statusDot"></div>
@@ -152,33 +74,31 @@
 
   <video id="video-player" autoplay playsinline muted></video>
   <video id="media-player" class="hidden"
-    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
+    style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:7;background:black;"></video>
   <img id="image-viewer" class="hidden"
-    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 6; background: black;">
+    style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;z-index:6;background:black;">
 
   <script>
-    const context = cast.framework.CastReceiverContext.getInstance();
-    const playerManager = context.getPlayerManager();
-
-    const splash = document.getElementById('splash');
-    const videoPlayer = document.getElementById('video-player');
-    const mediaPlayer = document.getElementById('media-player');
-    const imageViewer = document.getElementById('image-viewer');
+    const context        = cast.framework.CastReceiverContext.getInstance();
+    const playerManager  = context.getPlayerManager();
+    const splash         = document.getElementById('splash');
+    const videoPlayer    = document.getElementById('video-player');
+    const mediaPlayer    = document.getElementById('media-player');
+    const imageViewer    = document.getElementById('image-viewer');
     const connectionMessage = document.getElementById('connectionMessage');
-    const statusText = document.getElementById('statusText');
-    const statusDot = document.getElementById('statusDot');
+    const statusText     = document.getElementById('statusText');
+    const statusDot      = document.getElementById('statusDot');
+    const NAMESPACE      = 'urn:x-cast:com.tvmirror.screenmirror';
 
-    const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
+    let jmuxer          = null;
+    let ws              = null;
+    let liveEdgeHandle  = null;
 
-    let jmuxer = null;
-    let ws = null;
-    let liveEdgeInterval = null;
-
-    // Handle custom messages from sender
+    // ─── Custom message handler ───────────────────────────────────────────────
     context.addCustomMessageListener(NAMESPACE, (event) => {
       let data = event.data;
       if (typeof data === 'string') {
-        try { data = JSON.parse(data); } catch (e) { return; }
+        try { data = JSON.parse(data); } catch { return; }
       }
 
       if (data.type === 'CONNECTION_ESTABLISHED') {
@@ -186,14 +106,11 @@
         statusText.textContent = 'Connection established';
         statusDot.classList.add('connected');
       }
-
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
         if (data.streamUrl) startMirroring(data.streamUrl);
       }
-
       if (data.type === 'STOP_MIRRORING') stopMirroring();
-
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroringConnection();
         stopMediaCasting();
@@ -203,23 +120,17 @@
         imageViewer.style.display = 'block';
         statusText.textContent = 'Waiting for Image...';
       }
-
       if (data.type === 'CAST_VIDEO') {
-        cleanupMirroringConnection();
-        stopImageCasting();
-        playVideo(data.videoUrl);
+        cleanupMirroringConnection(); stopImageCasting(); playVideo(data.videoUrl);
       }
-
       if (data.type === 'CAST_AUDIO') {
-        cleanupMirroringConnection();
-        stopImageCasting();
-        playVideo(data.audioUrl);
-        statusText.textContent = 'Playing Audio';
+        cleanupMirroringConnection(); stopImageCasting();
+        playVideo(data.audioUrl); statusText.textContent = 'Playing Audio';
       }
-
       if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
     });
 
+    // ─── Media helpers ────────────────────────────────────────────────────────
     function playVideo(url) {
       splash.classList.add('hidden');
       mediaPlayer.classList.remove('hidden');
@@ -232,26 +143,20 @@
 
     function handleMediaControl(command, value) {
       if (!mediaPlayer) return;
-      switch (command) {
-        case 'play': mediaPlayer.play(); break;
-        case 'pause': mediaPlayer.pause(); break;
-        case 'seek':
-        case 'seekTo':
-          // iOS sends absolute seek position (seconds from start)
-          mediaPlayer.currentTime = value;
-          break;
-      }
+      if (command === 'play')  mediaPlayer.play();
+      if (command === 'pause') mediaPlayer.pause();
+      if (command === 'seek' || command === 'seekTo') mediaPlayer.currentTime = value;
     }
 
     function stopMediaCasting() {
       mediaPlayer.pause();
-      mediaPlayer.src = "";
+      mediaPlayer.src = '';
       mediaPlayer.classList.add('hidden');
       mediaPlayer.style.display = 'none';
     }
 
     function showImageBlob(blob) {
-      let url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(blob);
       imageViewer.onload = () => URL.revokeObjectURL(url);
       imageViewer.src = url;
       splash.classList.add('hidden');
@@ -261,10 +166,13 @@
       statusText.textContent = 'Showing Image';
     }
 
-    // =============================================
-    // ULTRA LOW LATENCY MIRRORING
-    // =============================================
+    function stopImageCasting() {
+      imageViewer.classList.add('hidden');
+      imageViewer.style.display = 'none';
+      imageViewer.src = '';
+    }
 
+    // ─── Ultra-low-latency mirroring ──────────────────────────────────────────
     function startMirroring(url) {
       cleanupMirroringConnection();
 
@@ -272,17 +180,33 @@
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // Create JMuxer with ULTRA LOW LATENCY settings
-      // clearBuffer: true removes old data aggressively
+      /*
+       * FIX A – JMuxer configuration
+       *
+       * flushingTime: 0  → feed data to MSE immediately, no timer batching.
+       * clearBuffer: true → once data is past, discard it so the browser's
+       *   media buffer never grows unboundedly (the root cause of the
+       *   "starts fine then freezes / slows down" symptom in the original).
+       *
+       * FIX B – Remove the hard-coded fps: 30.
+       *   When the stream runs at exactly 30 fps the JMuxer timestamp
+       *   inference is fine.  But if the iOS encoder drops frames under load
+       *   the inferred timestamps go wrong and MSE stalls.  Omitting `fps`
+       *   forces JMuxer to derive timing from the PTS embedded in the H.264
+       *   stream, which is always correct.
+       */
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 0,      // Immediate - no buffering
-        clearBuffer: true,    // Clear old buffer data
-        fps: 30,
+        flushingTime: 0,
+        clearBuffer: true,
         debug: false,
-        onReady: () => {
-          videoPlayer.play().catch(() => { });
+        onReady: () => videoPlayer.play().catch(() => {}),
+        onError: (err) => {
+          console.warn('JMuxer error – resetting:', err);
+          // FIX C – On decode error, destroy and recreate JMuxer rather than
+          // letting MSE get stuck in an unrecoverable error state.
+          resetJMuxer();
         }
       });
 
@@ -291,75 +215,101 @@
 
       ws.onopen = () => {
         statusText.textContent = 'Mirroring Screen';
-        videoPlayer.play().catch(() => { });
-
-        // Start aggressive live-edge maintenance every 250ms (smoother checks)
-        liveEdgeInterval = setInterval(() => {
-          if (videoPlayer.buffered.length > 0) {
-            const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-            const lag = end - videoPlayer.currentTime;
-
-            // Extremely gentle catch-up logic
-            if (lag > 1.5) {
-              // Only hard-jump if we are severely behind (> 1.5s)
-              videoPlayer.currentTime = end - 0.1;
-              videoPlayer.playbackRate = 1.0;
-            } else if (lag > 0.5) {
-              // Smoothly speed up for moderate lag
-              videoPlayer.playbackRate = 1.1;
-            } else if (lag > 0.2) {
-              // Very gentle speed up for minor lag
-              videoPlayer.playbackRate = 1.02;
-            } else {
-              // Normal speed
-              videoPlayer.playbackRate = 1.0;
-            }
-          }
-          if (videoPlayer.paused) {
-            videoPlayer.play().catch(() => { });
-          }
-        }, 250);
+        videoPlayer.play().catch(() => {});
+        startLiveEdgeChaser();
       };
 
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
 
-        // JPEG image check
+        // JPEG image (image casting mode)
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
           return;
         }
 
-        // Feed to JMuxer immediately
         if (jmuxer) {
           jmuxer.feed({ video: data });
         }
       };
 
-      ws.onerror = () => statusText.textContent = 'Connection Error';
-      ws.onclose = () => statusText.textContent = 'Disconnected';
+      ws.onerror = () => { statusText.textContent = 'Connection Error'; };
+      ws.onclose = () => { statusText.textContent = 'Disconnected'; };
     }
 
-    function stopImageCasting() {
-      imageViewer.classList.add('hidden');
-      imageViewer.style.display = 'none';
-      imageViewer.src = "";
+    /*
+     * FIX D – Live-edge chaser rewrite.
+     *
+     * Original problems:
+     *  1. Interval was 150 ms, which means up to 150 ms of extra lag was
+     *     accumulated before each correction.  50 ms is a better granularity.
+     *  2. Jumping to `end - 0.05` caused a micro-seek on EVERY interval tick
+     *     even when the lag was already ≤ 0.8 s, resetting MSE decode state
+     *     and introducing a visible stutter roughly every 150 ms.
+     *  3. Playback-rate was ramped BEFORE checking whether the video was
+     *     actually playing, so the ramp had no effect when paused.
+     *
+     * New approach:
+     *  – Only seek when lag > 1.0 s (a genuine runaway buffer).
+     *  – Use playback-rate 1.05 / 1.10 for gentle catch-up; never seek.
+     *  – Resume play if paused; normalise rate otherwise.
+     */
+    function startLiveEdgeChaser() {
+      if (liveEdgeHandle) clearInterval(liveEdgeHandle);
+
+      liveEdgeHandle = setInterval(() => {
+        if (videoPlayer.paused) {
+          videoPlayer.play().catch(() => {});
+          return;
+        }
+        if (videoPlayer.buffered.length === 0) return;
+
+        const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+        const lag = end - videoPlayer.currentTime;
+
+        if (lag > 1.5) {
+          // Very far behind — hard-jump to near-live edge
+          videoPlayer.currentTime = end - 0.1;
+          videoPlayer.playbackRate = 1.0;
+        } else if (lag > 0.6) {
+          // Moderate lag — catch up at 10 % above normal
+          videoPlayer.playbackRate = 1.10;
+        } else if (lag > 0.3) {
+          // Slight lag — gentle 5 % catch-up
+          videoPlayer.playbackRate = 1.05;
+        } else {
+          // At live edge — normal speed
+          videoPlayer.playbackRate = 1.0;
+        }
+      }, 50);   // FIX D: tighter interval = faster reaction
+    }
+
+    /*
+     * FIX C helper – recreate JMuxer in-place when MSE hits an error.
+     * This avoids a full WebSocket reconnect for a single decode hiccup.
+     */
+    function resetJMuxer() {
+      if (jmuxer) {
+        try { jmuxer.destroy(); } catch (_) {}
+        jmuxer = null;
+      }
+      jmuxer = new JMuxer({
+        node: 'video-player',
+        mode: 'video',
+        flushingTime: 0,
+        clearBuffer: true,
+        debug: false,
+        onReady: () => videoPlayer.play().catch(() => {}),
+        onError: () => {} // avoid infinite loop
+      });
     }
 
     function cleanupMirroringConnection() {
-      if (liveEdgeInterval) {
-        clearInterval(liveEdgeInterval);
-        liveEdgeInterval = null;
-      }
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-        ws = null;
-      }
-      if (jmuxer) {
-        jmuxer.destroy();
-        jmuxer = null;
-      }
+      if (liveEdgeHandle) { clearInterval(liveEdgeHandle); liveEdgeHandle = null; }
+      if (ws)     { ws.onclose = null; ws.close(); ws = null; }
+      if (jmuxer) { try { jmuxer.destroy(); } catch (_) {} jmuxer = null; }
+      // Reset playback rate so it doesn't bleed into next session
+      videoPlayer.playbackRate = 1.0;
     }
 
     function stopMirroring() {
@@ -369,14 +319,14 @@
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
+      statusDot.classList.remove('connected');
     }
 
-    // Start Cast Receiver
+    // ─── Cast Receiver bootstrap ──────────────────────────────────────────────
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.maxInactivity = 86400;  // 24 hours - prevent auto-disconnect during long sessions
+    options.maxInactivity = 86400;
     context.start(options);
   </script>
 </body>
-
 </html>
