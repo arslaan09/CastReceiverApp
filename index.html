@@ -174,9 +174,6 @@
     let jmuxer = null;
     let ws = null;
     let liveEdgeInterval = null;
-    let currentMirrorUrl = null;
-    let reconnectTimer = null;
-    let intentionalStop = false;
 
     // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
@@ -239,8 +236,11 @@
       switch (command) {
         case 'play': mediaPlayer.play(); break;
         case 'pause': mediaPlayer.pause(); break;
-        case 'seek': mediaPlayer.currentTime += value; break;
-        case 'seekTo': mediaPlayer.currentTime = value; break;
+        case 'seek':
+        case 'seekTo':
+          // iOS sends absolute seek position (seconds from start)
+          mediaPlayer.currentTime = value;
+          break;
       }
     }
 
@@ -263,40 +263,29 @@
     }
 
     // =============================================
-    // SCREEN MIRRORING
+    // ULTRA LOW LATENCY MIRRORING
     // =============================================
 
     function startMirroring(url) {
       cleanupMirroringConnection();
-      intentionalStop = false;
-      currentMirrorUrl = url;
 
       videoPlayer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
+      // Create JMuxer with ULTRA LOW LATENCY settings
+      // clearBuffer: true removes old data aggressively
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 0,        // Feed to decoder instantly — no internal buffering
-        clearBuffer: false,      // CRITICAL: Never discard reference frames — this causes pixel overlap
+        flushingTime: 0,      // Immediate - no buffering
+        clearBuffer: true,    // Clear old buffer data
         fps: 30,
         debug: false,
         onReady: () => {
           videoPlayer.play().catch(() => { });
         }
       });
-
-      connectWebSocket(url);
-    }
-
-    function connectWebSocket(url) {
-      if (ws) {
-        ws.onclose = null;
-        ws.onerror = null;
-        ws.close();
-        ws = null;
-      }
 
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
@@ -305,57 +294,48 @@
         statusText.textContent = 'Mirroring Screen';
         videoPlayer.play().catch(() => { });
 
-        if (liveEdgeInterval) clearInterval(liveEdgeInterval);
+        // Start aggressive live-edge maintenance every 500ms
         liveEdgeInterval = setInterval(() => {
           if (videoPlayer.buffered.length > 0) {
             const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const lag = end - videoPlayer.currentTime;
-            // Keep playback pinned to live edge without clearing reference frames
-            if (lag > 0.4) {
-              // Jump to near-live when >400ms behind
-              videoPlayer.currentTime = end - 0.05;
+
+            // Smooth catch-up logic
+            if (lag > 1.0) {
+              // Only hard-jump if we are severely behind (> 1s) to avoid massive sticky stalls
+              videoPlayer.currentTime = end - 0.1;
               videoPlayer.playbackRate = 1.0;
-            } else if (lag > 0.2) {
-              // Gently speed up to close small gaps
-              videoPlayer.playbackRate = 1.05;
+            } else if (lag > 0.3) {
+              // Smoothly speed up to catch the live edge without stutter
+              videoPlayer.playbackRate = 1.15;
             } else {
+              // Normal speed
               videoPlayer.playbackRate = 1.0;
             }
           }
           if (videoPlayer.paused) {
             videoPlayer.play().catch(() => { });
           }
-        }, 300);
+        }, 500);
       };
 
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
 
+        // JPEG image check
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
           return;
         }
 
+        // Feed to JMuxer immediately
         if (jmuxer) {
           jmuxer.feed({ video: data });
         }
       };
 
       ws.onerror = () => statusText.textContent = 'Connection Error';
-
-      ws.onclose = () => {
-        if (!intentionalStop && currentMirrorUrl) {
-          statusText.textContent = 'Reconnecting...';
-          if (reconnectTimer) clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(() => {
-            if (!intentionalStop && currentMirrorUrl) {
-              connectWebSocket(currentMirrorUrl);
-            }
-          }, 500);
-        } else {
-          statusText.textContent = 'Disconnected';
-        }
-      };
+      ws.onclose = () => statusText.textContent = 'Disconnected';
     }
 
     function stopImageCasting() {
@@ -365,19 +345,12 @@
     }
 
     function cleanupMirroringConnection() {
-      intentionalStop = true;
-      currentMirrorUrl = null;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
       if (liveEdgeInterval) {
         clearInterval(liveEdgeInterval);
         liveEdgeInterval = null;
       }
       if (ws) {
         ws.onclose = null;
-        ws.onerror = null;
         ws.close();
         ws = null;
       }
@@ -385,7 +358,6 @@
         jmuxer.destroy();
         jmuxer = null;
       }
-      videoPlayer.playbackRate = 1.0;
     }
 
     function stopMirroring() {
@@ -400,7 +372,7 @@
     // Start Cast Receiver
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.maxInactivity = 3600;
+    options.maxInactivity = 86400;  // 24 hours - prevent auto-disconnect during long sessions
     context.start(options);
   </script>
 </body>
