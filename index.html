@@ -1,97 +1,66 @@
 <!DOCTYPE html>
 <html>
-
 <head>
   <meta charset="UTF-8">
   <title>Screen Mirror Receiver</title>
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     html, body {
-      width: 100%;
-      height: 100%;
+      width: 100%; height: 100%;
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
       font-family: 'Segoe UI', system-ui, sans-serif;
       overflow: hidden;
     }
 
     #splash {
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      color: white;
-      z-index: 10;
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      color: white; z-index: 10;
     }
 
     .logo {
-      width: 120px;
-      height: 120px;
+      width: 120px; height: 120px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       border-radius: 30px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
+      display: flex; justify-content: center; align-items: center;
       margin-bottom: 40px;
-      box-shadow: 0 20px 40px rgba(102, 126, 234, 0.3);
+      box-shadow: 0 20px 40px rgba(102,126,234,0.3);
       animation: pulse 2s ease-in-out infinite;
     }
-
     .logo svg { width: 60px; height: 60px; fill: white; }
-
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50%       { transform: scale(1.05); }
-    }
+    @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 
     .title    { font-size: 48px; font-weight: 700; margin-bottom: 15px; }
     .subtitle { font-size: 24px; opacity: 0.8; margin-bottom: 50px; }
 
     .status-container {
-      display: flex;
-      align-items: center;
-      gap: 15px;
+      display: flex; align-items: center; gap: 15px;
       padding: 20px 40px;
       background: rgba(255,255,255,0.1);
       border-radius: 50px;
       backdrop-filter: blur(10px);
     }
-
     .status-dot {
-      width: 12px;
-      height: 12px;
-      background: #fbbf24;
-      border-radius: 50%;
+      width: 12px; height: 12px;
+      background: #fbbf24; border-radius: 50%;
       animation: blink 1.5s ease-in-out infinite;
     }
-    .status-dot.connected { background: #4ade80; }
-
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.4; }
-    }
-
+    .status-dot.connected { background: #4ade80; animation: none; }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
     .status-text { font-size: 20px; }
 
     /*
-     * FIX: Video is centered on the TV at exactly 720×1280.
-     * It does NOT stretch to fill the screen.
-     * The dark background is visible on the left/right sides.
+     * VIDEO WRAPPER: centers the 720x1280 video on the TV.
+     * Using flexbox so the video never stretches beyond its natural dimensions.
+     * The dark gradient background fills the unused sides.
      */
     #video-wrapper {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%;
-      height: 100%;
-      display: none;
+      position: absolute; inset: 0;
+      display: none;           /* shown when mirroring starts */
       justify-content: center;
       align-items: center;
       background: #000;
@@ -99,41 +68,41 @@
     }
 
     #video-player {
+      /*
+       * Fixed 720x1280 with viewport-based max constraints.
+       * calc(100vh * 720/1280) = max width to preserve aspect ratio at full height.
+       * This ensures the video never overflows vertically on any TV resolution,
+       * while always showing at the correct 9:16 portrait ratio.
+       */
       width: 720px;
       height: 1280px;
-      /* If the TV screen is shorter than 1280px, scale down proportionally */
       max-height: 100vh;
       max-width: calc(100vh * 720 / 1280);
       background: #000;
       display: block;
-      flex-shrink: 0;
     }
 
     #media-player {
-      position: absolute;
-      top: 0; left: 0;
+      position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: contain;
-      z-index: 7;
-      background: black;
+      z-index: 7; background: black;
       display: none;
     }
 
     #image-viewer {
-      position: absolute;
-      top: 0; left: 0;
+      position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: contain;
-      z-index: 6;
-      background: black;
+      z-index: 6; background: black;
       display: none;
     }
 
     .hidden { display: none !important; }
   </style>
 </head>
-
 <body>
+
   <div id="splash">
     <div class="logo">
       <svg viewBox="0 0 24 24">
@@ -148,13 +117,14 @@
     </div>
   </div>
 
-  <!-- Centered 720×1280 video wrapper -->
+  <!-- Centered portrait video -->
   <div id="video-wrapper">
     <video id="video-player" autoplay playsinline muted></video>
   </div>
 
+  <!-- Full-screen players for cast modes -->
   <video id="media-player"></video>
-  <img id="image-viewer" alt="">
+  <img   id="image-viewer" alt="">
 
   <script>
     const context       = cast.framework.CastReceiverContext.getInstance();
@@ -176,12 +146,16 @@
     let liveEdgeInterval = null;
     let catchupCount     = 0;
 
-    // Stall detection — reinit jmuxer if currentTime freezes despite data arriving
-    // (caused by stale SPS/PPS bundle sent on new client connect per the logs)
+    // ── Stall detection ───────────────────────────────────────────────────────
+    // If currentTime stops advancing despite data arriving, jmuxer has ingested
+    // a bad SPS/PPS. Reinit jmuxer without closing the WebSocket — the next IDR
+    // (sent every 5s from the new SampleHandler settings) restores playback.
     let lastCurrentTime = -1;
     let stalledTicks    = 0;
-    const STALL_LIMIT   = 12;  // 12 × 250ms = 3s before reinit
+    const STALL_LIMIT   = 16; // 16 × 250ms = 4s — longer than keyframe interval (5s)
+                               // so we don't reinit during the brief gap before first IDR
 
+    // ─────────────────────────────────────────────────────────────────────────
     context.addCustomMessageListener(NAMESPACE, (event) => {
       let data = event.data;
       if (typeof data === 'string') {
@@ -193,14 +167,11 @@
         statusText.textContent = 'Connection established';
         statusDot.classList.add('connected');
       }
-
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
         if (data.streamUrl) startMirroring(data.streamUrl);
       }
-
       if (data.type === 'STOP_MIRRORING') stopMirroring();
-
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroring();
         stopMediaCasting();
@@ -209,22 +180,19 @@
         imageViewer.style.display = 'block';
         statusText.textContent = 'Waiting for Image...';
       }
-
       if (data.type === 'CAST_VIDEO') {
-        cleanupMirroring();
-        stopImageCasting();
+        cleanupMirroring(); stopImageCasting();
         playVideo(data.videoUrl);
       }
-
       if (data.type === 'CAST_AUDIO') {
-        cleanupMirroring();
-        stopImageCasting();
+        cleanupMirroring(); stopImageCasting();
         playVideo(data.audioUrl);
         statusText.textContent = 'Playing Audio';
       }
-
       if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
     });
+
+    // ── Media helpers ─────────────────────────────────────────────────────────
 
     function playVideo(url) {
       splash.classList.add('hidden');
@@ -239,14 +207,12 @@
       switch (command) {
         case 'play':   mediaPlayer.play();  break;
         case 'pause':  mediaPlayer.pause(); break;
-        case 'seek':
-        case 'seekTo': mediaPlayer.currentTime = value; break;
+        case 'seek': case 'seekTo': mediaPlayer.currentTime = value; break;
       }
     }
 
     function stopMediaCasting() {
-      mediaPlayer.pause();
-      mediaPlayer.src = '';
+      mediaPlayer.pause(); mediaPlayer.src = '';
       mediaPlayer.style.display = 'none';
     }
 
@@ -265,34 +231,31 @@
       imageViewer.src = '';
     }
 
-    // ── JMuxer helpers ────────────────────────────────────────────────────────
+    // ── JMuxer lifecycle ──────────────────────────────────────────────────────
 
     function createJmuxer() {
-      if (jmuxer) {
-        try { jmuxer.destroy(); } catch (_) {}
-        jmuxer = null;
-      }
+      if (jmuxer) { try { jmuxer.destroy(); } catch (_) {} jmuxer = null; }
 
       jmuxer = new JMuxer({
         node: 'video-player',
         mode: 'video',
-        flushingTime: 0,
-        clearBuffer: true,
+        flushingTime: 0,    // flush every incoming chunk — zero internal buffering
+        clearBuffer: true,  // drop stale buffered segments aggressively
         fps: 30,
         debug: false,
         onReady: () => { videoPlayer.play().catch(() => {}); },
-        onMissingData: () => {}
+        onMissingData: () => {
+          // Network momentarily dry. Hold last frame — don't black out.
+          // jmuxer will resume when data arrives.
+        }
       });
     }
 
-    // ── Mirroring ─────────────────────────────────────────────────────────────
+    // ── Core mirroring ────────────────────────────────────────────────────────
 
     function startMirroring(url) {
       cleanupMirroring();
-
-      catchupCount    = 0;
-      stalledTicks    = 0;
-      lastCurrentTime = -1;
+      catchupCount = 0; stalledTicks = 0; lastCurrentTime = -1;
 
       splash.classList.add('hidden');
       videoWrapper.style.display = 'flex';
@@ -310,20 +273,20 @@
       };
 
       ws.onmessage = (event) => {
-        const data = new Uint8Array(event.data);
+        const bytes = new Uint8Array(event.data);
 
         // JPEG frame (browser / roku mode)
-        if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
-          showImageBlob(new Blob([data], { type: 'image/jpeg' }));
+        if (bytes.length > 2 && bytes[0] === 0xFF && bytes[1] === 0xD8) {
+          showImageBlob(new Blob([bytes], { type: 'image/jpeg' }));
           return;
         }
 
-        // H.264 NAL data
+        // H.264 NAL — hot path, minimal overhead
         if (jmuxer) {
           try {
-            jmuxer.feed({ video: data });
+            jmuxer.feed({ video: bytes });
           } catch (e) {
-            console.warn('jmuxer feed error, reinitialising:', e);
+            // Bad NAL (e.g. mismatched SPS/PPS after reconnect) — reinit silently
             createJmuxer();
           }
         }
@@ -338,19 +301,16 @@
 
       liveEdgeInterval = setInterval(() => {
 
-        if (videoPlayer.paused) {
-          videoPlayer.play().catch(() => {});
-        }
+        // Keep playing if paused
+        if (videoPlayer.paused) { videoPlayer.play().catch(() => {}); }
 
         const ct = videoPlayer.currentTime;
 
-        // Stall detection: if currentTime hasn't moved for 3s, jmuxer likely
-        // ingested a bad SPS/PPS (the WARNING seen in logs). Reinit without
-        // closing the WebSocket — next IDR restores playback immediately.
+        // ── Stall detection ───────────────────────────────────────────────
+        // currentTime frozen despite data arriving = bad SPS/PPS state.
+        // Reinit jmuxer; next IDR (arrives within 5s) resumes cleanly.
         if (ct === lastCurrentTime && ct > 0) {
-          stalledTicks++;
-          if (stalledTicks >= STALL_LIMIT) {
-            console.warn('Video stalled — reinitialising jmuxer');
+          if (++stalledTicks >= STALL_LIMIT) {
             createJmuxer();
             stalledTicks = 0;
           }
@@ -359,26 +319,29 @@
         }
         lastCurrentTime = ct;
 
-        // Live-edge management — rate only, no hard seeks
+        // ── Live-edge management ──────────────────────────────────────────
+        // ONLY adjust playbackRate — never hard-seek.
+        // Hard seeks stall the decoder pipeline and wait for an IDR,
+        // which is exactly the "fast burst then freeze" pattern.
         if (videoPlayer.buffered.length === 0) return;
-
         const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
         const lag = end - ct;
 
-        if (lag > 3.5) {
-          // Last resort: land 1s behind live edge so decoder has runway
+        if (lag > 4.0) {
+          // Extreme lag (e.g. after app backgrounding). Skip to 1s before live
+          // edge so decoder has runway. This is the ONLY place we seek.
           videoPlayer.currentTime = end - 1.0;
           videoPlayer.playbackRate = 1.0;
           catchupCount = 0;
-        } else if (lag > 1.8) {
-          videoPlayer.playbackRate = 1.07;
+        } else if (lag > 1.5) {
+          videoPlayer.playbackRate = 1.06;
           catchupCount = 0;
-        } else if (lag > 0.7) {
-          videoPlayer.playbackRate = 1.03;
+        } else if (lag > 0.6) {
+          videoPlayer.playbackRate = 1.02;
           catchupCount = 0;
         } else {
-          catchupCount++;
-          if (catchupCount >= 10) {
+          // Stable zone. Reset rate after 3 seconds of stability.
+          if (++catchupCount >= 12) {
             videoPlayer.playbackRate = 1.0;
           }
         }
@@ -387,29 +350,25 @@
 
     function cleanupMirroring() {
       if (liveEdgeInterval) { clearInterval(liveEdgeInterval); liveEdgeInterval = null; }
-      if (ws)     { ws.onclose = null; ws.close(); ws = null; }
+      if (ws) { ws.onclose = null; ws.close(); ws = null; }
       if (jmuxer) { try { jmuxer.destroy(); } catch (_) {} jmuxer = null; }
       videoPlayer.playbackRate = 1.0;
-      catchupCount    = 0;
-      stalledTicks    = 0;
-      lastCurrentTime = -1;
+      catchupCount = 0; stalledTicks = 0; lastCurrentTime = -1;
     }
 
     function stopMirroring() {
-      cleanupMirroring();
-      stopMediaCasting();
-      stopImageCasting();
+      cleanupMirroring(); stopMediaCasting(); stopImageCasting();
       videoWrapper.style.display = 'none';
       splash.classList.remove('hidden');
+      statusDot.classList.remove('connected');
       statusText.textContent = 'Ready to receive';
     }
 
-    // Start Cast Receiver
+    // Cast receiver bootstrap
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
     options.maxInactivity = 86400;
     context.start(options);
   </script>
 </body>
-
 </html>
