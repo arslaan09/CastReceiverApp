@@ -294,20 +294,23 @@
         statusText.textContent = 'Mirroring Screen';
         videoPlayer.play().catch(() => { });
 
-        // Start aggressive live-edge maintenance every 500ms
+        // Start aggressive live-edge maintenance every 250ms (smoother checks)
         liveEdgeInterval = setInterval(() => {
           if (videoPlayer.buffered.length > 0) {
             const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const lag = end - videoPlayer.currentTime;
 
-            // Smooth catch-up logic
-            if (lag > 1.0) {
-              // Only hard-jump if we are severely behind (> 1s) to avoid massive sticky stalls
+            // Extremely gentle catch-up logic
+            if (lag > 1.5) {
+              // Only hard-jump if we are severely behind (> 1.5s)
               videoPlayer.currentTime = end - 0.1;
               videoPlayer.playbackRate = 1.0;
-            } else if (lag > 0.3) {
-              // Smoothly speed up to catch the live edge without stutter
-              videoPlayer.playbackRate = 1.15;
+            } else if (lag > 0.5) {
+              // Smoothly speed up for moderate lag
+              videoPlayer.playbackRate = 1.1;
+            } else if (lag > 0.2) {
+              // Very gentle speed up for minor lag
+              videoPlayer.playbackRate = 1.02;
             } else {
               // Normal speed
               videoPlayer.playbackRate = 1.0;
@@ -316,7 +319,7 @@
           if (videoPlayer.paused) {
             videoPlayer.play().catch(() => { });
           }
-        }, 500);
+        }, 250);
       };
 
       ws.onmessage = (event) => {
