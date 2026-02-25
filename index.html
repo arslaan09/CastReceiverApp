@@ -1,374 +1,344 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Screen Mirror Receiver</title>
-  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+import ReplayKit
+import VideoToolbox
+import Network
 
-    html, body {
-      width: 100%; height: 100%;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      overflow: hidden;
+class SampleHandler: RPBroadcastSampleHandler {
+
+    private var connection: NWConnection?
+    private var session: VTCompressionSession?
+    private let queue = DispatchQueue(label: "com.tvmirror.encoding.queue", qos: .userInteractive)
+    private var isConnected = false
+    
+    private var connectionRetryCount = 0
+    private let maxConnectionRetries = 100
+    private var isReconnecting = false
+    private var shouldKeepRunning = true
+    
+    // Drop frames when TCP send buffer backs up — prevents burst→stutter cycle
+    private var pendingSendCount = 0
+    private let maxPendingSends = 5
+    
+    private var width: Int32 = 720
+    private var height: Int32 = 1280
+    private var fps: Int32 = 30
+    private var jpegQuality: Float = 0.6
+    private var resizePercent: Int = 100
+    private var mirroringMode = "tv"
+    
+    override func broadcastStarted(withSetupInfo setupInfo: [String : NSObject]?) {
+        shouldKeepRunning = true
+        connectionRetryCount = 0
+        isReconnecting = false
+        pendingSendCount = 0
+        loadSettings()
+        connectToHost()
+        setupCompressionSession()
     }
-
-    #splash {
-      position: absolute; inset: 0;
-      display: flex; flex-direction: column;
-      justify-content: center; align-items: center;
-      color: white; z-index: 10;
+    
+    override func broadcastPaused() {}
+    
+    override func broadcastResumed() {
+        if !isConnected && shouldKeepRunning { connectToHost() }
     }
-
-    .logo {
-      width: 120px; height: 120px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 30px;
-      display: flex; justify-content: center; align-items: center;
-      margin-bottom: 40px;
-      box-shadow: 0 20px 40px rgba(102,126,234,0.3);
-      animation: pulse 2s ease-in-out infinite;
-    }
-    .logo svg { width: 60px; height: 60px; fill: white; }
-    @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-
-    .title    { font-size: 48px; font-weight: 700; margin-bottom: 15px; }
-    .subtitle { font-size: 24px; opacity: 0.8; margin-bottom: 50px; }
-
-    .status-container {
-      display: flex; align-items: center; gap: 15px;
-      padding: 20px 40px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 50px;
-      backdrop-filter: blur(10px);
-    }
-    .status-dot {
-      width: 12px; height: 12px;
-      background: #fbbf24; border-radius: 50%;
-      animation: blink 1.5s ease-in-out infinite;
-    }
-    .status-dot.connected { background: #4ade80; animation: none; }
-    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .status-text { font-size: 20px; }
-
-    /*
-     * VIDEO WRAPPER: centers the 720x1280 video on the TV.
-     * Using flexbox so the video never stretches beyond its natural dimensions.
-     * The dark gradient background fills the unused sides.
-     */
-    #video-wrapper {
-      position: absolute; inset: 0;
-      display: none;           /* shown when mirroring starts */
-      justify-content: center;
-      align-items: center;
-      background: #000;
-      z-index: 5;
-    }
-
-    #video-player {
-      /*
-       * Fixed 720x1280 with viewport-based max constraints.
-       * calc(100vh * 720/1280) = max width to preserve aspect ratio at full height.
-       * This ensures the video never overflows vertically on any TV resolution,
-       * while always showing at the correct 9:16 portrait ratio.
-       */
-      width: 720px;
-      height: 1280px;
-      max-height: 100vh;
-      max-width: calc(100vh * 720 / 1280);
-      background: #000;
-      display: block;
-    }
-
-    #media-player {
-      position: absolute; inset: 0;
-      width: 100%; height: 100%;
-      object-fit: contain;
-      z-index: 7; background: black;
-      display: none;
-    }
-
-    #image-viewer {
-      position: absolute; inset: 0;
-      width: 100%; height: 100%;
-      object-fit: contain;
-      z-index: 6; background: black;
-      display: none;
-    }
-
-    .hidden { display: none !important; }
-  </style>
-</head>
-<body>
-
-  <div id="splash">
-    <div class="logo">
-      <svg viewBox="0 0 24 24">
-        <path d="M21,3H3C1.89,3 1,3.89 1,5V17A2,2 0 0,0 3,19H8V21H16V19H21A2,2 0 0,0 23,17V5C23,3.89 22.1,3 21,3M21,17H3V5H21M16,11L9,15V7"/>
-      </svg>
-    </div>
-    <div class="title">Screen Mirroring -Miracast</div>
-    <div class="subtitle" id="connectionMessage">Waiting for connection...</div>
-    <div class="status-container">
-      <div class="status-dot" id="statusDot"></div>
-      <div class="status-text" id="statusText">Ready to receive</div>
-    </div>
-  </div>
-
-  <!-- Centered portrait video -->
-  <div id="video-wrapper">
-    <video id="video-player" autoplay playsinline muted></video>
-  </div>
-
-  <!-- Full-screen players for cast modes -->
-  <video id="media-player"></video>
-  <img   id="image-viewer" alt="">
-
-  <script>
-    const context       = cast.framework.CastReceiverContext.getInstance();
-    const playerManager = context.getPlayerManager();
-
-    const splash            = document.getElementById('splash');
-    const videoWrapper      = document.getElementById('video-wrapper');
-    const videoPlayer       = document.getElementById('video-player');
-    const mediaPlayer       = document.getElementById('media-player');
-    const imageViewer       = document.getElementById('image-viewer');
-    const connectionMessage = document.getElementById('connectionMessage');
-    const statusText        = document.getElementById('statusText');
-    const statusDot         = document.getElementById('statusDot');
-
-    const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
-
-    let jmuxer           = null;
-    let ws               = null;
-    let liveEdgeInterval = null;
-    let catchupCount     = 0;
-
-    // ── Stall detection ───────────────────────────────────────────────────────
-    // If currentTime stops advancing despite data arriving, jmuxer has ingested
-    // a bad SPS/PPS. Reinit jmuxer without closing the WebSocket — the next IDR
-    // (sent every 5s from the new SampleHandler settings) restores playback.
-    let lastCurrentTime = -1;
-    let stalledTicks    = 0;
-    const STALL_LIMIT   = 16; // 16 × 250ms = 4s — longer than keyframe interval (5s)
-                               // so we don't reinit during the brief gap before first IDR
-
-    // ─────────────────────────────────────────────────────────────────────────
-    context.addCustomMessageListener(NAMESPACE, (event) => {
-      let data = event.data;
-      if (typeof data === 'string') {
-        try { data = JSON.parse(data); } catch (e) { return; }
-      }
-
-      if (data.type === 'CONNECTION_ESTABLISHED') {
-        connectionMessage.textContent = 'Connected to ' + (data.deviceName || 'iOS Device');
-        statusText.textContent = 'Connection established';
-        statusDot.classList.add('connected');
-      }
-      if (data.type === 'START_MIRRORING') {
-        stopImageCasting();
-        if (data.streamUrl) startMirroring(data.streamUrl);
-      }
-      if (data.type === 'STOP_MIRRORING') stopMirroring();
-      if (data.type === 'CAST_IMAGE_WS') {
-        cleanupMirroring();
-        stopMediaCasting();
-        startMirroring(data.streamUrl);
-        videoWrapper.style.display = 'none';
-        imageViewer.style.display = 'block';
-        statusText.textContent = 'Waiting for Image...';
-      }
-      if (data.type === 'CAST_VIDEO') {
-        cleanupMirroring(); stopImageCasting();
-        playVideo(data.videoUrl);
-      }
-      if (data.type === 'CAST_AUDIO') {
-        cleanupMirroring(); stopImageCasting();
-        playVideo(data.audioUrl);
-        statusText.textContent = 'Playing Audio';
-      }
-      if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
-    });
-
-    // ── Media helpers ─────────────────────────────────────────────────────────
-
-    function playVideo(url) {
-      splash.classList.add('hidden');
-      videoWrapper.style.display = 'none';
-      mediaPlayer.style.display = 'block';
-      mediaPlayer.src = url;
-      mediaPlayer.play();
-      statusText.textContent = 'Playing Video';
-    }
-
-    function handleMediaControl(command, value) {
-      switch (command) {
-        case 'play':   mediaPlayer.play();  break;
-        case 'pause':  mediaPlayer.pause(); break;
-        case 'seek': case 'seekTo': mediaPlayer.currentTime = value; break;
-      }
-    }
-
-    function stopMediaCasting() {
-      mediaPlayer.pause(); mediaPlayer.src = '';
-      mediaPlayer.style.display = 'none';
-    }
-
-    function showImageBlob(blob) {
-      const url = URL.createObjectURL(blob);
-      imageViewer.onload = () => URL.revokeObjectURL(url);
-      imageViewer.src = url;
-      splash.classList.add('hidden');
-      videoWrapper.style.display = 'none';
-      imageViewer.style.display = 'block';
-      statusText.textContent = 'Showing Image';
-    }
-
-    function stopImageCasting() {
-      imageViewer.style.display = 'none';
-      imageViewer.src = '';
-    }
-
-    // ── JMuxer lifecycle ──────────────────────────────────────────────────────
-
-    function createJmuxer() {
-      if (jmuxer) { try { jmuxer.destroy(); } catch (_) {} jmuxer = null; }
-
-      jmuxer = new JMuxer({
-        node: 'video-player',
-        mode: 'video',
-        flushingTime: 0,    // flush every incoming chunk — zero internal buffering
-        clearBuffer: true,  // drop stale buffered segments aggressively
-        fps: 30,
-        debug: false,
-        onReady: () => { videoPlayer.play().catch(() => {}); },
-        onMissingData: () => {
-          // Network momentarily dry. Hold last frame — don't black out.
-          // jmuxer will resume when data arrives.
+    
+    override func broadcastFinished() {
+        shouldKeepRunning = false
+        isConnected = false
+        if let session = session {
+            VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
+            VTCompressionSessionInvalidate(session)
+            self.session = nil
         }
-      });
+        connection?.cancel()
+        connection = nil
     }
-
-    // ── Core mirroring ────────────────────────────────────────────────────────
-
-    function startMirroring(url) {
-      cleanupMirroring();
-      catchupCount = 0; stalledTicks = 0; lastCurrentTime = -1;
-
-      splash.classList.add('hidden');
-      videoWrapper.style.display = 'flex';
-      statusText.textContent = 'Connecting...';
-
-      createJmuxer();
-
-      ws = new WebSocket(url);
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        statusText.textContent = 'Mirroring Screen';
-        videoPlayer.play().catch(() => {});
-        startLiveEdgeLoop();
-      };
-
-      ws.onmessage = (event) => {
-        const bytes = new Uint8Array(event.data);
-
-        // JPEG frame (browser / roku mode)
-        if (bytes.length > 2 && bytes[0] === 0xFF && bytes[1] === 0xD8) {
-          showImageBlob(new Blob([bytes], { type: 'image/jpeg' }));
-          return;
+    
+    override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
+        switch sampleBufferType {
+        case .video:
+            guard let session = session else { return }
+            guard pendingSendCount <= maxPendingSends else { return }
+            guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+            let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            let duration = CMSampleBufferGetDuration(sampleBuffer)
+            var flags: VTEncodeInfoFlags = []
+            VTCompressionSessionEncodeFrame(session, imageBuffer: imageBuffer,
+                presentationTimeStamp: pts, duration: duration,
+                frameProperties: nil, sourceFrameRefcon: nil, infoFlagsOut: &flags)
+        case .audioApp, .audioMic:
+            break
+        @unknown default:
+            break
         }
-
-        // H.264 NAL — hot path, minimal overhead
-        if (jmuxer) {
-          try {
-            jmuxer.feed({ video: bytes });
-          } catch (e) {
-            // Bad NAL (e.g. mismatched SPS/PPS after reconnect) — reinit silently
-            createJmuxer();
-          }
-        }
-      };
-
-      ws.onerror = () => { statusText.textContent = 'Connection Error'; };
-      ws.onclose = () => { statusText.textContent = 'Disconnected'; };
     }
-
-    function startLiveEdgeLoop() {
-      if (liveEdgeInterval) clearInterval(liveEdgeInterval);
-
-      liveEdgeInterval = setInterval(() => {
-
-        // Keep playing if paused
-        if (videoPlayer.paused) { videoPlayer.play().catch(() => {}); }
-
-        const ct = videoPlayer.currentTime;
-
-        // ── Stall detection ───────────────────────────────────────────────
-        // currentTime frozen despite data arriving = bad SPS/PPS state.
-        // Reinit jmuxer; next IDR (arrives within 5s) resumes cleanly.
-        if (ct === lastCurrentTime && ct > 0) {
-          if (++stalledTicks >= STALL_LIMIT) {
-            createJmuxer();
-            stalledTicks = 0;
-          }
+    
+    private func connectToHost() {
+        guard shouldKeepRunning, !isReconnecting else { return }
+        isReconnecting = true
+        pendingSendCount = 0
+        connection?.cancel()
+        connection = nil
+        isConnected = false
+        
+        let appGroupID = "group.com.screen.mirroring.casting.miracast.airplay.screencast.TvMirror"
+        let sharedDefaults = UserDefaults(suiteName: appGroupID)
+        let hostIP = sharedDefaults?.string(forKey: "server_ip") ?? "127.0.0.1"
+        self.mirroringMode = sharedDefaults?.string(forKey: "mirroring_mode") ?? "tv"
+        if self.mirroringMode != "browser" && self.mirroringMode != "tv" && self.mirroringMode != "roku" {
+            self.mirroringMode = "tv"
+        }
+        
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.enableKeepalive = true
+        tcpOptions.keepaliveIdle = 5
+        tcpOptions.keepaliveCount = 3
+        tcpOptions.keepaliveInterval = 5
+        tcpOptions.connectionTimeout = 10
+        tcpOptions.noDelay = true
+        
+        let params = NWParameters(tls: nil, tcp: tcpOptions)
+        connection = NWConnection(host: NWEndpoint.Host(hostIP), port: NWEndpoint.Port(rawValue: 9000)!, using: params)
+        
+        connection?.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
+            switch state {
+            case .ready:
+                self.isConnected = true
+                self.connectionRetryCount = 0
+                self.isReconnecting = false
+                self.pendingSendCount = 0
+            case .failed(_):
+                self.isConnected = false
+                self.isReconnecting = false
+                self.pendingSendCount = 0
+                if self.shouldKeepRunning && self.connectionRetryCount < self.maxConnectionRetries {
+                    self.connectionRetryCount += 1
+                    let delay = min(5.0, 0.5 * pow(2.0, Double(min(self.connectionRetryCount - 1, 3))))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.connectToHost() }
+                } else if self.connectionRetryCount >= self.maxConnectionRetries {
+                    let err = NSError(domain: "com.tvmirror.extension", code: -2,
+                        userInfo: [NSLocalizedDescriptionKey: "Connection failed after max retries"])
+                    self.finishBroadcastWithError(err)
+                }
+            case .cancelled:
+                self.isConnected = false
+                self.isReconnecting = false
+                self.pendingSendCount = 0
+                if self.shouldKeepRunning {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { self.connectToHost() }
+                }
+            default: break
+            }
+        }
+        connection?.start(queue: queue)
+    }
+    
+    private func loadSettings() {
+        let appGroupID = "group.com.screen.mirroring.casting.miracast.airplay.screencast.TvMirror"
+        let defaults = UserDefaults(suiteName: appGroupID)
+        self.mirroringMode = defaults?.string(forKey: "mirroring_mode") ?? "tv"
+        
+        let screen = UIScreen.main.bounds.size
+        let nativeWidth = Int32(screen.width * UIScreen.main.scale)
+        let nativeHeight = Int32(screen.height * UIScreen.main.scale)
+        
+        if mirroringMode == "browser" {
+            let fpsLimit = defaults?.integer(forKey: "browserMirror_limitFPS") ?? 30
+            self.fps = Int32(fpsLimit > 0 ? fpsLimit : 30)
+            let quality = defaults?.double(forKey: "browserMirror_jpegCompressionQuality") ?? 60.0
+            self.jpegQuality = quality > 1.0 ? Float(quality / 100.0) : Float(quality)
+            let resize = defaults?.integer(forKey: "browserMirror_resizeImagePercent") ?? 80
+            self.resizePercent = (resize > 0 && resize <= 100) ? resize : 80
+            let scaleFactor = Double(resizePercent) / 100.0
+            self.width = Int32(Double(nativeWidth) * scaleFactor)
+            self.height = Int32(Double(nativeHeight) * scaleFactor)
+            if self.width % 2 != 0 { self.width += 1 }
+            if self.height % 2 != 0 { self.height += 1 }
+        } else if mirroringMode == "roku" {
+            self.width = 480
+            let ratio = Double(nativeHeight) / Double(nativeWidth)
+            self.height = Int32(Double(self.width) * ratio)
+            if self.width % 2 != 0 { self.width += 1 }
+            if self.height % 2 != 0 { self.height += 1 }
+            self.fps = 30
+            self.jpegQuality = 0.35
         } else {
-          stalledTicks = 0;
+            self.width = 720
+            self.height = 1280
+            self.fps = 30
         }
-        lastCurrentTime = ct;
-
-        // ── Live-edge management ──────────────────────────────────────────
-        // ONLY adjust playbackRate — never hard-seek.
-        // Hard seeks stall the decoder pipeline and wait for an IDR,
-        // which is exactly the "fast burst then freeze" pattern.
-        if (videoPlayer.buffered.length === 0) return;
-        const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-        const lag = end - ct;
-
-        if (lag > 4.0) {
-          // Extreme lag (e.g. after app backgrounding). Skip to 1s before live
-          // edge so decoder has runway. This is the ONLY place we seek.
-          videoPlayer.currentTime = end - 1.0;
-          videoPlayer.playbackRate = 1.0;
-          catchupCount = 0;
-        } else if (lag > 1.5) {
-          videoPlayer.playbackRate = 1.06;
-          catchupCount = 0;
-        } else if (lag > 0.6) {
-          videoPlayer.playbackRate = 1.02;
-          catchupCount = 0;
+    }
+    
+    private func setupCompressionSession() {
+        // Tear down any existing session first to prevent double-init
+        // (which would create a session without CAVLC on the second call)
+        if let existing = session {
+            VTCompressionSessionCompleteFrames(existing, untilPresentationTimeStamp: .invalid)
+            VTCompressionSessionInvalidate(existing)
+            self.session = nil
+        }
+        
+        let codecType: CMVideoCodecType = (mirroringMode == "browser" || mirroringMode == "roku")
+            ? kCMVideoCodecType_JPEG : kCMVideoCodecType_H264
+        
+        let status = VTCompressionSessionCreate(
+            allocator: kCFAllocatorDefault, width: width, height: height, codecType: codecType,
+            encoderSpecification: nil, imageBufferAttributes: nil, compressedDataAllocator: nil,
+            outputCallback: compressionCallback,
+            refcon: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
+            compressionSessionOut: &session)
+        
+        guard status == noErr, let session = session else { return }
+        
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: fps as CFNumber)
+        
+        if codecType == kCMVideoCodecType_H264 {
+            // ── FORCE TRUE BASELINE PROFILE ──────────────────────────────────
+            // CAVLC is a Baseline-only entropy mode — the hardware encoder
+            // physically cannot produce valid CAVLC-coded H.264 in Main/High.
+            // This is the only reliable way to enforce Baseline on iOS hardware.
+            VTSessionSetProperty(session,
+                key: kVTCompressionPropertyKey_ProfileLevel,
+                value: kVTProfileLevel_H264_Baseline_3_1)
+            VTSessionSetProperty(session,
+                key: kVTCompressionPropertyKey_H264EntropyMode,
+                value: kVTH264EntropyMode_CAVLC)
+            
+            // No B-frames: mandatory for Baseline, also eliminates decode delay
+            VTSessionSetProperty(session,
+                key: kVTCompressionPropertyKey_AllowFrameReordering,
+                value: kCFBooleanFalse)
+            
+            // ── BITRATE: 700Kbps ─────────────────────────────────────────────
+            // 1.2Mbps caused encoder to fight against its own rate control,
+            // producing burst spikes at IDR boundaries. 700Kbps is the sweet
+            // spot for 720p screen content over WiFi — smooth and low-latency.
+            // NO DataRateLimits: that property fights the AverageBitRate setting
+            // and causes the encoder to stall then dump large IDR bursts.
+            let avgBitrate: Int32 = 700_000
+            VTSessionSetProperty(session,
+                key: kVTCompressionPropertyKey_AverageBitRate,
+                value: avgBitrate as CFNumber)
+            
+            // ── KEYFRAME: every 4s ───────────────────────────────────────────
+            // With CAVLC Baseline, IDR frames are ~5KB — negligible burst.
+            // 4s balances recovery speed vs steady-state traffic smoothness.
+            VTSessionSetProperty(session,
+                key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
+                value: (self.fps * 4) as CFNumber)
+            VTSessionSetProperty(session,
+                key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+                value: 4.0 as CFNumber)
         } else {
-          // Stable zone. Reset rate after 3 seconds of stability.
-          if (++catchupCount >= 12) {
-            videoPlayer.playbackRate = 1.0;
-          }
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_Quality, value: jpegQuality as CFNumber)
         }
-      }, 250);
+        
+        if #available(iOS 15.0, *) {
+            VTSessionSetProperty(session,
+                key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality,
+                value: kCFBooleanTrue)
+        }
+        
+        VTCompressionSessionPrepareToEncodeFrames(session)
     }
+}
 
-    function cleanupMirroring() {
-      if (liveEdgeInterval) { clearInterval(liveEdgeInterval); liveEdgeInterval = null; }
-      if (ws) { ws.onclose = null; ws.close(); ws = null; }
-      if (jmuxer) { try { jmuxer.destroy(); } catch (_) {} jmuxer = null; }
-      videoPlayer.playbackRate = 1.0;
-      catchupCount = 0; stalledTicks = 0; lastCurrentTime = -1;
+private func compressionCallback(
+    outputCallbackRefCon: UnsafeMutableRawPointer?,
+    sourceFrameRefCon: UnsafeMutableRawPointer?,
+    status: OSStatus,
+    infoFlags: VTEncodeInfoFlags,
+    sampleBuffer: CMSampleBuffer?
+) {
+    guard status == noErr, let sampleBuffer = sampleBuffer, let refCon = outputCallbackRefCon else { return }
+    Unmanaged<SampleHandler>.fromOpaque(refCon).takeUnretainedValue().handleEncodedFrame(sampleBuffer: sampleBuffer)
+}
+
+extension SampleHandler {
+    func handleEncodedFrame(sampleBuffer: CMSampleBuffer) {
+        guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        
+        if mirroringMode == "browser" || mirroringMode == "roku" {
+            var lengthAtOffset: Int = 0
+            var totalLength: Int = 0
+            var dataPointer: UnsafeMutablePointer<Int8>?
+            guard CMBlockBufferGetDataPointer(dataBuffer, atOffset: 0, lengthAtOffsetOut: &lengthAtOffset, totalLengthOut: &totalLength, dataPointerOut: &dataPointer) == noErr else { return }
+            sendFrameWithLength(Data(bytes: dataPointer!, count: totalLength))
+            return
+        }
+        
+        var frameData = Data()
+        
+        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) as? [[CFString: Any]],
+           let attachment = attachments.first {
+            let notSync = attachment[kCMSampleAttachmentKey_NotSync] as? Bool ?? false
+            if !notSync {
+                if let paramData = getSPSPPS(from: sampleBuffer) { frameData.append(paramData) }
+            }
+        }
+        
+        var lengthAtOffset: Int = 0
+        var totalLength: Int = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        guard CMBlockBufferGetDataPointer(dataBuffer, atOffset: 0, lengthAtOffsetOut: &lengthAtOffset, totalLengthOut: &totalLength, dataPointerOut: &dataPointer) == noErr else { return }
+        
+        var offset = 0
+        while offset < totalLength - 4 {
+            var naluLength: UInt32 = 0
+            memcpy(&naluLength, dataPointer! + offset, 4)
+            naluLength = CFSwapInt32BigToHost(naluLength)
+            offset += 4
+            frameData.append(contentsOf: [0x00, 0x00, 0x00, 0x01])
+            frameData.append(Data(bytes: dataPointer! + offset, count: Int(naluLength)))
+            offset += Int(naluLength)
+        }
+        
+        sendFrameWithLength(frameData)
     }
-
-    function stopMirroring() {
-      cleanupMirroring(); stopMediaCasting(); stopImageCasting();
-      videoWrapper.style.display = 'none';
-      splash.classList.remove('hidden');
-      statusDot.classList.remove('connected');
-      statusText.textContent = 'Ready to receive';
+    
+    private func sendFrameWithLength(_ data: Data) {
+        guard shouldKeepRunning else { return }
+        guard isConnected, let connection = connection else {
+            if !isReconnecting && shouldKeepRunning { connectToHost() }
+            return
+        }
+        
+        pendingSendCount += 1
+        var length = UInt32(data.count).bigEndian
+        var packet = Data(capacity: 4 + data.count)
+        packet.append(Data(bytes: &length, count: 4))
+        packet.append(data)
+        
+        connection.send(content: packet, completion: .contentProcessed({ [weak self] error in
+            guard let self = self else { return }
+            self.pendingSendCount = max(0, self.pendingSendCount - 1)
+            if let _ = error {
+                self.isConnected = false
+                if self.shouldKeepRunning && !self.isReconnecting { self.connectToHost() }
+            }
+        }))
     }
-
-    // Cast receiver bootstrap
-    const options = new cast.framework.CastReceiverOptions();
-    options.disableIdleTimeout = true;
-    options.maxInactivity = 86400;
-    context.start(options);
-  </script>
-</body>
-</html>
+    
+    private func getSPSPPS(from sampleBuffer: CMSampleBuffer) -> Data? {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else { return nil }
+        var parameterSetCount = 0
+        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(formatDescription, parameterSetIndex: 0,
+            parameterSetPointerOut: nil, parameterSetSizeOut: nil,
+            parameterSetCountOut: &parameterSetCount, nalUnitHeaderLengthOut: nil)
+        
+        var result = Data()
+        for i in 0..<parameterSetCount {
+            var ptr: UnsafePointer<UInt8>?
+            var size: Int = 0
+            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(formatDescription, parameterSetIndex: i,
+                parameterSetPointerOut: &ptr, parameterSetSizeOut: &size,
+                parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil)
+            if let p = ptr {
+                result.append(contentsOf: [0x00, 0x00, 0x00, 0x01])
+                result.append(contentsOf: UnsafeBufferPointer(start: p, count: size))
+            }
+        }
+        return result.isEmpty ? nil : result
+    }
+}
