@@ -116,18 +116,6 @@
       font-size: 20px;
     }
 
-    #video-player {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: black;
-      display: none;
-      z-index: 5;
-    }
-
     .hidden {
       display: none !important;
     }
@@ -150,11 +138,20 @@
     </div>
   </div>
 
-  <video id="video-player" autoplay playsinline muted></video>
+  <!-- Native Google Cast media player for video/audio (used by remoteMediaClient.loadMedia) -->
+  <cast-media-player id="cast-player"
+    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 8; display: none;"></cast-media-player>
+
+  <!-- Fallback custom video player (used when remoteMediaClient is unavailable) -->
+  <video id="media-player" class="hidden"
+    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"
+    autoplay playsinline></video>
+
+  <!-- MJPEG mirroring viewer -->
   <img id="mjpeg-viewer" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 5; background: black; will-change: contents; transform: translateZ(0); image-rendering: auto;">
-  <video id="media-player" class="hidden"
-    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
+
+  <!-- Image casting viewer -->
   <img id="image-viewer" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 6; background: black;">
 
@@ -163,9 +160,9 @@
     const playerManager = context.getPlayerManager();
 
     const splash = document.getElementById('splash');
-    const videoPlayer = document.getElementById('video-player');
-    const mjpegViewer = document.getElementById('mjpeg-viewer');
+    const castPlayer = document.getElementById('cast-player');
     const mediaPlayer = document.getElementById('media-player');
+    const mjpegViewer = document.getElementById('mjpeg-viewer');
     const imageViewer = document.getElementById('image-viewer');
     const connectionMessage = document.getElementById('connectionMessage');
     const statusText = document.getElementById('statusText');
@@ -173,12 +170,44 @@
 
     const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
 
-    // Handle custom messages from sender
+    // =============================================
+    // NATIVE CAF MEDIA PLAYER (Primary path)
+    // Used when iOS sender calls remoteMediaClient.loadMedia()
+    // =============================================
+    playerManager.addEventListener(
+      cast.framework.events.EventType.PLAYER_LOAD_COMPLETE,
+      () => {
+        console.log('[Receiver] Native CAF media loaded');
+        splash.classList.add('hidden');
+        cleanupMirroringConnection();
+        cleanupImageCastingWS();
+        stopImageCasting();
+        stopFallbackPlayer();
+        castPlayer.style.display = 'block';
+        statusText.textContent = 'Playing Media';
+      }
+    );
+
+    playerManager.addEventListener(
+      cast.framework.events.EventType.MEDIA_FINISHED,
+      () => {
+        console.log('[Receiver] Native CAF media ended');
+        castPlayer.style.display = 'none';
+        splash.classList.remove('hidden');
+        statusText.textContent = 'Ready to receive';
+      }
+    );
+
+    // =============================================
+    // CUSTOM CHANNEL (Mirroring + Image + Fallback Video)
+    // =============================================
     context.addCustomMessageListener(NAMESPACE, (event) => {
       let data = event.data;
       if (typeof data === 'string') {
         try { data = JSON.parse(data); } catch (e) { return; }
       }
+
+      console.log('[Receiver] Custom message:', data.type);
 
       if (data.type === 'CONNECTION_ESTABLISHED') {
         connectionMessage.textContent = 'Connected to ' + (data.deviceName || 'iOS Device');
@@ -189,6 +218,8 @@
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
         cleanupImageCastingWS();
+        stopFallbackPlayer();
+        castPlayer.style.display = 'none';
         if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
@@ -197,68 +228,82 @@
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroringConnection();
         cleanupImageCastingWS();
-        stopMediaCasting();
+        stopFallbackPlayer();
+        castPlayer.style.display = 'none';
         startImageCastingWS(data.streamUrl);
-        videoPlayer.style.display = 'none';
         imageViewer.classList.remove('hidden');
         imageViewer.style.display = 'block';
         statusText.textContent = 'Waiting for Image...';
       }
 
+      // FALLBACK VIDEO: When remoteMediaClient is unavailable, iOS sends CAST_VIDEO via custom channel
       if (data.type === 'CAST_VIDEO') {
+        console.log('[Receiver] Fallback CAST_VIDEO:', data.videoUrl);
         cleanupMirroringConnection();
         cleanupImageCastingWS();
         stopImageCasting();
-        playVideo(data.videoUrl);
+        castPlayer.style.display = 'none';
+        playFallbackVideo(data.videoUrl);
       }
 
+      // FALLBACK AUDIO: Same fallback for audio
       if (data.type === 'CAST_AUDIO') {
+        console.log('[Receiver] Fallback CAST_AUDIO:', data.audioUrl);
         cleanupMirroringConnection();
         cleanupImageCastingWS();
         stopImageCasting();
-        playVideo(data.audioUrl);
+        castPlayer.style.display = 'none';
+        playFallbackVideo(data.audioUrl);
         statusText.textContent = 'Playing Audio';
       }
 
-      if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
+      // FALLBACK CONTROLS: play/pause/seek for fallback video player
+      if (data.type === 'MEDIA_CONTROL') {
+        handleFallbackControl(data.command, data.value);
+      }
     });
 
-    function playVideo(url) {
+    // =============================================
+    // FALLBACK VIDEO PLAYER (custom <video> tag)
+    // =============================================
+    function playFallbackVideo(url) {
       splash.classList.add('hidden');
       mediaPlayer.classList.remove('hidden');
       mediaPlayer.style.display = 'block';
       mediaPlayer.src = url;
       mediaPlayer.play();
       statusText.textContent = 'Playing Video';
-      videoPlayer.style.display = 'none';
     }
 
-    function handleMediaControl(command, value) {
+    function handleFallbackControl(command, value) {
       if (!mediaPlayer) return;
       switch (command) {
         case 'play': mediaPlayer.play(); break;
         case 'pause': mediaPlayer.pause(); break;
         case 'seek':
         case 'seekTo':
-          // iOS sends absolute seek position (seconds from start)
           mediaPlayer.currentTime = value;
           break;
       }
     }
 
-    function stopMediaCasting() {
+    function stopFallbackPlayer() {
       mediaPlayer.pause();
-      mediaPlayer.src = "";
+      mediaPlayer.src = '';
       mediaPlayer.classList.add('hidden');
       mediaPlayer.style.display = 'none';
     }
 
+    // =============================================
+    // IMAGE DISPLAY
+    // =============================================
     function showImageBlob(blob) {
       let url = URL.createObjectURL(blob);
       imageViewer.onload = () => URL.revokeObjectURL(url);
       imageViewer.src = url;
       splash.classList.add('hidden');
-      videoPlayer.style.display = 'none';
+      castPlayer.style.display = 'none';
+      stopFallbackPlayer();
       imageViewer.style.display = 'block';
       imageViewer.classList.remove('hidden');
       statusText.textContent = 'Showing Image';
@@ -267,57 +312,27 @@
     // =============================================
     // MJPEG STREAM MIRRORING (LOW LATENCY)
     // =============================================
-
     var isMirroringActive = false;
     var mjpegErrorTimer = null;
 
     function startMirroring(url) {
       cleanupMirroringConnection();
       cleanupImageCastingWS();
-
-      // Hide other elements
-      videoPlayer.style.display = 'none';
+      castPlayer.style.display = 'none';
+      stopFallbackPlayer();
       stopImageCasting();
-      stopMediaCasting();
 
-      // Show MJPEG viewer
       mjpegViewer.classList.remove('hidden');
       mjpegViewer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
-      isMirroringActive = true;
 
-      // Set MJPEG stream URL directly on img src
-      // The browser natively handles multipart/x-mixed-replace for continuous updates
-      mjpegViewer.onerror = () => {
-        // MJPEG stream broke — server closed connection (user stopped broadcast)
-        // or network error. Return to splash after a brief debounce to avoid
-        // flashing on transient errors.
-        if (isMirroringActive) {
-          if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
-          mjpegErrorTimer = setTimeout(() => {
-            // Only act if still in mirroring state (not already cleaned up by STOP_MIRRORING message)
-            if (isMirroringActive) {
-              console.log('MJPEG stream ended — returning to home screen');
-              stopMirroring();
-            }
-          }, 500);
-        }
-      };
-      mjpegViewer.onload = () => {
-        // Stream is active — cancel any pending error timeout
-        if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
-        statusText.textContent = 'Mirroring Screen';
-      };
+      mjpegViewer.onerror = () => { statusText.textContent = 'Connection Error'; };
+      mjpegViewer.onload = () => { statusText.textContent = 'Mirroring Screen'; };
       mjpegViewer.src = url;
     }
 
     function cleanupMirroringConnection() {
-      isMirroringActive = false;
-      if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
-      // Stop MJPEG stream by clearing the img src
-      mjpegViewer.onerror = null;
-      mjpegViewer.onload = null;
       mjpegViewer.src = '';
       mjpegViewer.classList.add('hidden');
       mjpegViewer.style.display = 'none';
@@ -326,9 +341,9 @@
     function stopMirroring() {
       cleanupMirroringConnection();
       cleanupImageCastingWS();
-      stopMediaCasting();
       stopImageCasting();
-      videoPlayer.style.display = 'none';
+      stopFallbackPlayer();
+      castPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
     }
@@ -336,37 +351,25 @@
     // =============================================
     // WEBSOCKET IMAGE CASTING (for CAST_IMAGE_WS)
     // =============================================
-
     let ws = null;
 
     function startImageCastingWS(url) {
       cleanupImageCastingWS();
-
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        statusText.textContent = 'Image Casting Active';
-      };
-
+      ws.onopen = () => { statusText.textContent = 'Image Casting Active'; };
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
-        // JPEG image check
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
         }
       };
-
       ws.onerror = () => statusText.textContent = 'Connection Error';
       ws.onclose = () => statusText.textContent = 'Disconnected';
     }
 
     function cleanupImageCastingWS() {
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-        ws = null;
-      }
+      if (ws) { ws.onclose = null; ws.close(); ws = null; }
     }
 
     function stopImageCasting() {
@@ -378,7 +381,9 @@
     // Start Cast Receiver
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.maxInactivity = 86400;  // 24 hours - prevent auto-disconnect during long sessions
+    options.maxInactivity = 86400;
+    options.customNamespaces = {};
+    options.customNamespaces[NAMESPACE] = cast.framework.system.MessageType.JSON;
     context.start(options);
   </script>
 </body>
