@@ -157,6 +157,8 @@
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 6; background: black;">
+  <cast-media-player id="cast-media-player" class="hidden"
+    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 8; background: black;"></cast-media-player>
 
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
@@ -167,11 +169,40 @@
     const mjpegViewer = document.getElementById('mjpeg-viewer');
     const mediaPlayer = document.getElementById('media-player');
     const imageViewer = document.getElementById('image-viewer');
+    const castMediaPlayer = document.getElementById('cast-media-player');
     const connectionMessage = document.getElementById('connectionMessage');
     const statusText = document.getElementById('statusText');
     const statusDot = document.getElementById('statusDot');
 
     const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
+
+    // Listen for native CAF player state changes to toggle visibility
+    playerManager.addEventListener(
+      cast.framework.events.EventType.PLAYER_STATE_CHANGED,
+      (event) => {
+        if (event.value !== cast.framework.messages.PlayerState.IDLE) {
+          // Player is active (PLAYING, PAUSED, BUFFERING)
+          splash.classList.add('hidden');
+          castMediaPlayer.classList.remove('hidden');
+          castMediaPlayer.style.display = 'block';
+
+          // Stop other custom media
+          stopImageCasting();
+          stopMediaCasting();
+          cleanupMirroringConnection();
+        } else {
+          // Player is IDLE (finished or stopped)
+          castMediaPlayer.classList.add('hidden');
+          castMediaPlayer.style.display = 'none';
+
+          // Only show splash if we aren't currently mirroring or showing an image
+          if (!isMirroringActive && imageViewer.classList.contains('hidden') && mediaPlayer.classList.contains('hidden')) {
+            splash.classList.remove('hidden');
+            statusText.textContent = 'Ready to receive';
+          }
+        }
+      }
+    );
 
     // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
@@ -189,6 +220,7 @@
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
         cleanupImageCastingWS();
+        playerManager.stop(); // Stop native CAF playback
         if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
@@ -198,6 +230,7 @@
         cleanupMirroringConnection();
         cleanupImageCastingWS();
         stopMediaCasting();
+        playerManager.stop(); // Stop native CAF playback
         startImageCastingWS(data.streamUrl);
         videoPlayer.style.display = 'none';
         imageViewer.classList.remove('hidden');
