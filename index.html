@@ -157,8 +157,6 @@
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 6; background: black;">
-  <cast-media-player id="cast-media-player" class="hidden"
-    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 8; background: black;"></cast-media-player>
 
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
@@ -169,40 +167,11 @@
     const mjpegViewer = document.getElementById('mjpeg-viewer');
     const mediaPlayer = document.getElementById('media-player');
     const imageViewer = document.getElementById('image-viewer');
-    const castMediaPlayer = document.getElementById('cast-media-player');
     const connectionMessage = document.getElementById('connectionMessage');
     const statusText = document.getElementById('statusText');
     const statusDot = document.getElementById('statusDot');
 
     const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
-
-    // Listen for native CAF player state changes to toggle visibility
-    playerManager.addEventListener(
-      cast.framework.events.EventType.PLAYER_STATE_CHANGED,
-      (event) => {
-        if (event.value !== cast.framework.messages.PlayerState.IDLE) {
-          // Player is active (PLAYING, PAUSED, BUFFERING)
-          splash.classList.add('hidden');
-          castMediaPlayer.classList.remove('hidden');
-          castMediaPlayer.style.display = 'block';
-
-          // Stop other custom media
-          stopImageCasting();
-          stopMediaCasting();
-          cleanupMirroringConnection();
-        } else {
-          // Player is IDLE (finished or stopped)
-          castMediaPlayer.classList.add('hidden');
-          castMediaPlayer.style.display = 'none';
-
-          // Only show splash if we aren't currently mirroring or showing an image
-          if (!isMirroringActive && imageViewer.classList.contains('hidden') && mediaPlayer.classList.contains('hidden')) {
-            splash.classList.remove('hidden');
-            statusText.textContent = 'Ready to receive';
-          }
-        }
-      }
-    );
 
     // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
@@ -220,7 +189,6 @@
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
         cleanupImageCastingWS();
-        playerManager.stop(); // Stop native CAF playback
         if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
@@ -230,7 +198,6 @@
         cleanupMirroringConnection();
         cleanupImageCastingWS();
         stopMediaCasting();
-        playerManager.stop(); // Stop native CAF playback
         startImageCastingWS(data.streamUrl);
         videoPlayer.style.display = 'none';
         imageViewer.classList.remove('hidden');
@@ -242,32 +209,27 @@
         cleanupMirroringConnection();
         cleanupImageCastingWS();
         stopImageCasting();
-        playVideo(data.videoUrl, data.autoplay !== undefined ? data.autoplay : false);
+        playVideo(data.videoUrl);
       }
 
       if (data.type === 'CAST_AUDIO') {
         cleanupMirroringConnection();
         cleanupImageCastingWS();
         stopImageCasting();
-        playVideo(data.audioUrl, true);
+        playVideo(data.audioUrl);
         statusText.textContent = 'Playing Audio';
       }
 
       if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
     });
 
-    function playVideo(url, autoplay) {
+    function playVideo(url) {
       splash.classList.add('hidden');
       mediaPlayer.classList.remove('hidden');
       mediaPlayer.style.display = 'block';
       mediaPlayer.src = url;
-      if (autoplay === false) {
-        mediaPlayer.pause();
-        statusText.textContent = 'Video Ready — Waiting to Play';
-      } else {
-        mediaPlayer.play();
-        statusText.textContent = 'Playing Video';
-      }
+      mediaPlayer.play();
+      statusText.textContent = 'Playing Video';
       videoPlayer.style.display = 'none';
     }
 
@@ -306,9 +268,6 @@
     // MJPEG STREAM MIRRORING (LOW LATENCY)
     // =============================================
 
-    var isMirroringActive = false;
-    var mjpegErrorTimer = null;
-
     function startMirroring(url) {
       cleanupMirroringConnection();
       cleanupImageCastingWS();
@@ -323,39 +282,20 @@
       mjpegViewer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
-      isMirroringActive = true;
 
       // Set MJPEG stream URL directly on img src
       // The browser natively handles multipart/x-mixed-replace for continuous updates
       mjpegViewer.onerror = () => {
-        // MJPEG stream broke — server closed connection (user stopped broadcast)
-        // or network error. Return to splash after a brief debounce to avoid
-        // flashing on transient errors.
-        if (isMirroringActive) {
-          if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
-          mjpegErrorTimer = setTimeout(() => {
-            // Only act if still in mirroring state (not already cleaned up by STOP_MIRRORING message)
-            if (isMirroringActive) {
-              console.log('MJPEG stream ended — returning to home screen');
-              stopMirroring();
-            }
-          }, 500);
-        }
+        statusText.textContent = 'Connection Error';
       };
       mjpegViewer.onload = () => {
-        // Stream is active — cancel any pending error timeout
-        if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
         statusText.textContent = 'Mirroring Screen';
       };
       mjpegViewer.src = url;
     }
 
     function cleanupMirroringConnection() {
-      isMirroringActive = false;
-      if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
       // Stop MJPEG stream by clearing the img src
-      mjpegViewer.onerror = null;
-      mjpegViewer.onload = null;
       mjpegViewer.src = '';
       mjpegViewer.classList.add('hidden');
       mjpegViewer.style.display = 'none';
