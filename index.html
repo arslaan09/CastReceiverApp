@@ -268,8 +268,8 @@
     // MJPEG STREAM MIRRORING (LOW LATENCY)
     // =============================================
 
-    let isMirroringActive = false;
-    let mjpegErrorTimer = null;
+    var isMirroringActive = false;
+    var mjpegErrorTimer = null;
 
     function startMirroring(url) {
       cleanupMirroringConnection();
