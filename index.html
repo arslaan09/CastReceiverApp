@@ -223,6 +223,42 @@
       if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
     });
 
+    // =============================================
+    // MEDIA STATUS REPORTING (Bidirectional Sync)
+    // =============================================
+    let mediaStatusInterval = null;
+    let currentMediaState = 'idle';
+
+    function sendMediaStatus() {
+      if (!mediaPlayer || !mediaPlayer.src) return;
+      const state = mediaPlayer.ended ? 'ended'
+        : (mediaPlayer.readyState < 3 || mediaPlayer.seeking) ? 'buffering'
+          : mediaPlayer.paused ? 'paused'
+            : 'playing';
+      currentMediaState = state;
+      const msg = {
+        type: 'MEDIA_STATUS',
+        state: state,
+        currentTime: mediaPlayer.currentTime || 0,
+        duration: mediaPlayer.duration || 0
+      };
+      try {
+        context.sendCustomMessage(NAMESPACE, undefined, msg);
+      } catch (e) { /* ignore send errors */ }
+    }
+
+    function startMediaStatusReporting() {
+      stopMediaStatusReporting();
+      mediaStatusInterval = setInterval(sendMediaStatus, 500);
+    }
+
+    function stopMediaStatusReporting() {
+      if (mediaStatusInterval) {
+        clearInterval(mediaStatusInterval);
+        mediaStatusInterval = null;
+      }
+    }
+
     function playVideo(url) {
       splash.classList.add('hidden');
       mediaPlayer.classList.remove('hidden');
@@ -231,7 +267,19 @@
       mediaPlayer.play();
       statusText.textContent = 'Playing Video';
       videoPlayer.style.display = 'none';
+      startMediaStatusReporting();
     }
+
+    // Attach event listeners for immediate status updates
+    mediaPlayer.addEventListener('play', sendMediaStatus);
+    mediaPlayer.addEventListener('pause', sendMediaStatus);
+    mediaPlayer.addEventListener('waiting', sendMediaStatus);
+    mediaPlayer.addEventListener('seeked', sendMediaStatus);
+    mediaPlayer.addEventListener('ended', () => {
+      sendMediaStatus();
+      stopMediaStatusReporting();
+    });
+    mediaPlayer.addEventListener('playing', sendMediaStatus);
 
     function handleMediaControl(command, value) {
       if (!mediaPlayer) return;
@@ -244,9 +292,12 @@
           mediaPlayer.currentTime = value;
           break;
       }
+      // Send immediate status after control
+      setTimeout(sendMediaStatus, 100);
     }
 
     function stopMediaCasting() {
+      stopMediaStatusReporting();
       mediaPlayer.pause();
       mediaPlayer.src = "";
       mediaPlayer.classList.add('hidden');
@@ -362,4 +413,3 @@
 </body>
 
 </html>
-
