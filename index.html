@@ -116,18 +116,6 @@
       font-size: 20px;
     }
 
-    #video-player {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: black;
-      display: none;
-      z-index: 5;
-    }
-
     .hidden {
       display: none !important;
     }
@@ -150,11 +138,15 @@
     </div>
   </div>
 
-  <video id="video-player" autoplay playsinline muted></video>
+  <!-- Native Google Cast media player for video/audio casting -->
+  <cast-media-player id="cast-player"
+    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 7;"></cast-media-player>
+
+  <!-- MJPEG mirroring viewer -->
   <img id="mjpeg-viewer" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 5; background: black; will-change: contents; transform: translateZ(0); image-rendering: auto;">
-  <video id="media-player" class="hidden" autoplay playsinline
-    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
+
+  <!-- Image casting viewer -->
   <img id="image-viewer" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 6; background: black;">
 
@@ -163,9 +155,8 @@
     const playerManager = context.getPlayerManager();
 
     const splash = document.getElementById('splash');
-    const videoPlayer = document.getElementById('video-player');
+    const castPlayer = document.getElementById('cast-player');
     const mjpegViewer = document.getElementById('mjpeg-viewer');
-    const mediaPlayer = document.getElementById('media-player');
     const imageViewer = document.getElementById('image-viewer');
     const connectionMessage = document.getElementById('connectionMessage');
     const statusText = document.getElementById('statusText');
@@ -173,7 +164,41 @@
 
     const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
 
-    // Handle custom messages from sender
+    // =============================================
+    // NATIVE CAF MEDIA PLAYER MANAGEMENT
+    // =============================================
+    // The <cast-media-player> + playerManager handle video/audio casting
+    // natively when iOS uses remoteMediaClient.loadMedia().
+
+    // Hide cast-media-player initially
+    castPlayer.style.display = 'none';
+
+    playerManager.addEventListener(
+      cast.framework.events.EventType.PLAYER_LOAD_COMPLETE,
+      () => {
+        console.log('[Receiver] Native media loaded');
+        splash.classList.add('hidden');
+        cleanupMirroringConnection();
+        cleanupImageCastingWS();
+        stopImageCasting();
+        castPlayer.style.display = 'block';
+        statusText.textContent = 'Playing Media';
+      }
+    );
+
+    playerManager.addEventListener(
+      cast.framework.events.EventType.MEDIA_FINISHED,
+      () => {
+        console.log('[Receiver] Native media ended');
+        castPlayer.style.display = 'none';
+        splash.classList.remove('hidden');
+        statusText.textContent = 'Ready to receive';
+      }
+    );
+
+    // =============================================
+    // CUSTOM CHANNEL (Mirroring + Image Casting)
+    // =============================================
     context.addCustomMessageListener(NAMESPACE, (event) => {
       let data = event.data;
       if (typeof data === 'string') {
@@ -189,6 +214,7 @@
       if (data.type === 'START_MIRRORING') {
         stopImageCasting();
         cleanupImageCastingWS();
+        castPlayer.style.display = 'none';
         if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
@@ -197,144 +223,23 @@
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroringConnection();
         cleanupImageCastingWS();
-        stopMediaCasting();
+        castPlayer.style.display = 'none';
         startImageCastingWS(data.streamUrl);
-        videoPlayer.style.display = 'none';
         imageViewer.classList.remove('hidden');
         imageViewer.style.display = 'block';
         statusText.textContent = 'Waiting for Image...';
       }
-
-      if (data.type === 'CAST_VIDEO') {
-        cleanupMirroringConnection();
-        cleanupImageCastingWS();
-        stopImageCasting();
-        playVideo(data.videoUrl);
-      }
-
-      if (data.type === 'CAST_AUDIO') {
-        cleanupMirroringConnection();
-        cleanupImageCastingWS();
-        stopImageCasting();
-        playVideo(data.audioUrl);
-        statusText.textContent = 'Playing Audio';
-      }
-
-      if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
     });
 
     // =============================================
-    // MEDIA STATUS REPORTING (Bidirectional Sync)
+    // IMAGE DISPLAY
     // =============================================
-    let mediaStatusInterval = null;
-    let currentMediaState = 'idle';
-
-    function sendMediaStatus() {
-      if (!mediaPlayer || !mediaPlayer.src) return;
-      const state = mediaPlayer.ended ? 'ended'
-        : (mediaPlayer.readyState < 3 || mediaPlayer.seeking) ? 'buffering'
-          : mediaPlayer.paused ? 'paused'
-            : 'playing';
-      currentMediaState = state;
-      const msg = {
-        type: 'MEDIA_STATUS',
-        state: state,
-        currentTime: mediaPlayer.currentTime || 0,
-        duration: mediaPlayer.duration || 0
-      };
-      try {
-        context.sendCustomMessage(NAMESPACE, undefined, msg);
-      } catch (e) { /* ignore send errors */ }
-    }
-
-    function startMediaStatusReporting() {
-      stopMediaStatusReporting();
-      mediaStatusInterval = setInterval(sendMediaStatus, 500);
-    }
-
-    function stopMediaStatusReporting() {
-      if (mediaStatusInterval) {
-        clearInterval(mediaStatusInterval);
-        mediaStatusInterval = null;
-      }
-    }
-
-    function playVideo(url) {
-      console.log('[Receiver] playVideo called with URL:', url);
-      splash.classList.add('hidden');
-      mediaPlayer.classList.remove('hidden');
-      mediaPlayer.style.display = 'block';
-
-      // Add error handler for this load
-      mediaPlayer.onerror = function (e) {
-        console.error('[Receiver] Video load error:', mediaPlayer.error?.code, mediaPlayer.error?.message);
-        // Report error back to iOS
-        try {
-          context.sendCustomMessage(NAMESPACE, undefined, {
-            type: 'MEDIA_STATUS',
-            state: 'error',
-            currentTime: 0,
-            duration: 0,
-            error: 'Failed to load video: ' + (mediaPlayer.error?.message || 'Unknown error')
-          });
-        } catch (ex) { /* ignore */ }
-      };
-
-      // Confirm when video is ready to play
-      mediaPlayer.oncanplay = function () {
-        console.log('[Receiver] Video canplay - ready to play');
-      };
-
-      mediaPlayer.src = url;
-      mediaPlayer.load();
-      mediaPlayer.play().catch(function (err) {
-        console.error('[Receiver] play() rejected:', err);
-      });
-      statusText.textContent = 'Playing Video';
-      videoPlayer.style.display = 'none';
-      startMediaStatusReporting();
-    }
-
-    // Attach event listeners for immediate status updates
-    mediaPlayer.addEventListener('play', sendMediaStatus);
-    mediaPlayer.addEventListener('pause', sendMediaStatus);
-    mediaPlayer.addEventListener('waiting', sendMediaStatus);
-    mediaPlayer.addEventListener('seeked', sendMediaStatus);
-    mediaPlayer.addEventListener('ended', () => {
-      sendMediaStatus();
-      stopMediaStatusReporting();
-    });
-    mediaPlayer.addEventListener('playing', sendMediaStatus);
-
-    function handleMediaControl(command, value) {
-      if (!mediaPlayer) return;
-      switch (command) {
-        case 'play': mediaPlayer.play(); break;
-        case 'pause': mediaPlayer.pause(); break;
-        case 'seek':
-        case 'seekTo':
-          // iOS sends absolute seek position (seconds from start)
-          mediaPlayer.currentTime = value;
-          break;
-      }
-      // Send immediate status after control
-      setTimeout(sendMediaStatus, 100);
-    }
-
-    function stopMediaCasting() {
-      stopMediaStatusReporting();
-      mediaPlayer.pause();
-      mediaPlayer.src = "";
-      mediaPlayer.classList.add('hidden');
-      mediaPlayer.style.display = 'none';
-    }
-
     function showImageBlob(blob) {
       let url = URL.createObjectURL(blob);
       imageViewer.onload = () => URL.revokeObjectURL(url);
       imageViewer.src = url;
       splash.classList.add('hidden');
-      videoPlayer.style.display = 'none';
+      castPlayer.style.display = 'none';
       imageViewer.style.display = 'block';
       imageViewer.classList.remove('hidden');
       statusText.textContent = 'Showing Image';
@@ -343,35 +248,23 @@
     // =============================================
     // MJPEG STREAM MIRRORING (LOW LATENCY)
     // =============================================
-
     function startMirroring(url) {
       cleanupMirroringConnection();
       cleanupImageCastingWS();
-
-      // Hide other elements
-      videoPlayer.style.display = 'none';
+      castPlayer.style.display = 'none';
       stopImageCasting();
-      stopMediaCasting();
 
-      // Show MJPEG viewer
       mjpegViewer.classList.remove('hidden');
       mjpegViewer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
 
-      // Set MJPEG stream URL directly on img src
-      // The browser natively handles multipart/x-mixed-replace for continuous updates
-      mjpegViewer.onerror = () => {
-        statusText.textContent = 'Connection Error';
-      };
-      mjpegViewer.onload = () => {
-        statusText.textContent = 'Mirroring Screen';
-      };
+      mjpegViewer.onerror = () => { statusText.textContent = 'Connection Error'; };
+      mjpegViewer.onload = () => { statusText.textContent = 'Mirroring Screen'; };
       mjpegViewer.src = url;
     }
 
     function cleanupMirroringConnection() {
-      // Stop MJPEG stream by clearing the img src
       mjpegViewer.src = '';
       mjpegViewer.classList.add('hidden');
       mjpegViewer.style.display = 'none';
@@ -380,9 +273,8 @@
     function stopMirroring() {
       cleanupMirroringConnection();
       cleanupImageCastingWS();
-      stopMediaCasting();
       stopImageCasting();
-      videoPlayer.style.display = 'none';
+      castPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
     }
@@ -390,37 +282,25 @@
     // =============================================
     // WEBSOCKET IMAGE CASTING (for CAST_IMAGE_WS)
     // =============================================
-
     let ws = null;
 
     function startImageCastingWS(url) {
       cleanupImageCastingWS();
-
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        statusText.textContent = 'Image Casting Active';
-      };
-
+      ws.onopen = () => { statusText.textContent = 'Image Casting Active'; };
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
-        // JPEG image check
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
         }
       };
-
       ws.onerror = () => statusText.textContent = 'Connection Error';
       ws.onclose = () => statusText.textContent = 'Disconnected';
     }
 
     function cleanupImageCastingWS() {
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-        ws = null;
-      }
+      if (ws) { ws.onclose = null; ws.close(); ws = null; }
     }
 
     function stopImageCasting() {
@@ -432,7 +312,9 @@
     // Start Cast Receiver
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.maxInactivity = 86400;  // 24 hours - prevent auto-disconnect during long sessions
+    options.maxInactivity = 86400;
+    options.customNamespaces = {};
+    options.customNamespaces[NAMESPACE] = cast.framework.system.MessageType.JSON;
     context.start(options);
   </script>
 </body>
