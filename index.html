@@ -1,4 +1,3 @@
-o
 <!DOCTYPE html>
 <html>
 
@@ -432,9 +431,11 @@ o
       mjpegViewer.onerror = () => {
         if (isMirroringActive) {
           if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
+          // Use a long timeout (10s) so brief interruptions during app backgrounding
+          // don't tear down the mirroring session prematurely
           mjpegErrorTimer = setTimeout(() => {
             if (isMirroringActive) { stopMirroring(); }
-          }, 500);
+          }, 10000);
         }
       };
       mjpegViewer.onload = () => {
@@ -506,9 +507,11 @@ o
 
     // ── Sender disconnect handler ─────────────────────────────────────
     context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (event) => {
-      console.log('[RECEIVER] Sender disconnected');
-      // If no senders remain, return to splash
-      if (context.getSenders().length === 0) {
+      console.log('[RECEIVER] Sender disconnected. Mirroring active: ' + isMirroringActive);
+      // If mirroring is active, do NOT tear down — the broadcast extension
+      // keeps sending the MJPEG stream independently of the main app's lifecycle.
+      // Only return to splash for non-mirroring sessions (media/image casting).
+      if (context.getSenders().length === 0 && !isMirroringActive) {
         returnToSplash();
       }
     });
