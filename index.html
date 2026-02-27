@@ -1,4 +1,5 @@
-o<!DOCTYPE html>
+o
+<!DOCTYPE html>
 <html>
 
 <head>
@@ -205,11 +206,11 @@ o<!DOCTYPE html>
     }
 
     // Wire up media player events → send status to iOS
-    mediaPlayer.addEventListener('playing',  () => { sendStatus('playing');  startStatusReporting(); });
-    mediaPlayer.addEventListener('pause',    () => { stopStatusReporting();  sendStatus('paused');   });
-    mediaPlayer.addEventListener('waiting',  () => { sendStatus('buffering'); });
-    mediaPlayer.addEventListener('ended',    () => { stopStatusReporting();  sendStatus('ended');    });
-    mediaPlayer.addEventListener('error',    () => { stopStatusReporting();  sendStatus('idle');     });
+    mediaPlayer.addEventListener('playing', () => { sendStatus('playing'); startStatusReporting(); });
+    mediaPlayer.addEventListener('pause', () => { stopStatusReporting(); sendStatus('paused'); });
+    mediaPlayer.addEventListener('waiting', () => { sendStatus('buffering'); });
+    mediaPlayer.addEventListener('ended', () => { stopStatusReporting(); sendStatus('ended'); });
+    mediaPlayer.addEventListener('error', () => { stopStatusReporting(); sendStatus('idle'); });
     // Unmute after first frame arrives (Chromecast may require muted autoplay first)
     mediaPlayer.addEventListener('loadeddata', () => {
       console.log('[RECEIVER] loadeddata — unmuting');
@@ -365,8 +366,13 @@ o<!DOCTYPE html>
 
     function stopMediaCasting() {
       stopStatusReporting();
+      // Clear handlers BEFORE clearing src to prevent the retry loop
+      mediaPlayer.oncanplay = null;
+      mediaPlayer.onerror = null;
+      if (mediaRetryTimer) { clearTimeout(mediaRetryTimer); mediaRetryTimer = null; }
+      mediaRetryCount = 0;
       mediaPlayer.pause();
-      mediaPlayer.src = '';
+      mediaPlayer.removeAttribute('src');
       mediaPlayer.load();
       mediaPlayer.classList.add('hidden');
       mediaPlayer.style.display = 'none';
@@ -476,4 +482,3 @@ o<!DOCTYPE html>
 </body>
 
 </html>
- 
