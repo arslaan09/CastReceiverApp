@@ -175,6 +175,9 @@ o
 
     const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
 
+    // Flag to suppress error handlers during intentional media stop
+    var mediaStopping = false;
+
     // ── Status reporting ──────────────────────────────────────────────
     // Send playback state back to the iOS sender so it can sync the local player.
     let statusInterval = null;
@@ -207,10 +210,20 @@ o
 
     // Wire up media player events → send status to iOS
     mediaPlayer.addEventListener('playing', () => { sendStatus('playing'); startStatusReporting(); });
-    mediaPlayer.addEventListener('pause', () => { stopStatusReporting(); sendStatus('paused'); });
-    mediaPlayer.addEventListener('waiting', () => { sendStatus('buffering'); });
-    mediaPlayer.addEventListener('ended', () => { stopStatusReporting(); sendStatus('ended'); });
-    mediaPlayer.addEventListener('error', () => { stopStatusReporting(); sendStatus('idle'); });
+    mediaPlayer.addEventListener('pause', () => { if (!mediaStopping) { stopStatusReporting(); sendStatus('paused'); } });
+    mediaPlayer.addEventListener('waiting', () => { if (!mediaStopping) sendStatus('buffering'); });
+    mediaPlayer.addEventListener('ended', () => {
+      stopStatusReporting();
+      sendStatus('ended');
+      // Return to splash screen after video finishes
+      setTimeout(() => returnToSplash(), 1500);
+    });
+    mediaPlayer.addEventListener('error', () => {
+      // Ignore errors during intentional stop
+      if (mediaStopping) return;
+      stopStatusReporting();
+      sendStatus('idle');
+    });
     // Unmute after first frame arrives (Chromecast may require muted autoplay first)
     mediaPlayer.addEventListener('loadeddata', () => {
       console.log('[RECEIVER] loadeddata — unmuting');
@@ -322,12 +335,14 @@ o
 
       // Set up error handler with retry
       mediaPlayer.onerror = function () {
+        // Ignore errors during intentional stop
+        if (mediaStopping) return;
         const err = mediaPlayer.error;
         console.log('[RECEIVER] media error: code=' + (err ? err.code : '?') + ' msg=' + (err ? err.message : '?'));
         mediaRetryCount++;
         if (mediaRetryCount <= MAX_MEDIA_RETRIES) {
           console.log('[RECEIVER] retrying in ' + (mediaRetryCount * 1000) + 'ms (attempt ' + (mediaRetryCount + 1) + ')');
-          statusText.textContent = 'Retrying... (' + mediaRetryCount + '/' + MAX_MEDIA_RETRIES + ')';
+          statusText.textContent = 'Loading...';
           mediaRetryTimer = setTimeout(function () {
             // Append cache-buster to force a fresh request
             const sep = url.indexOf('?') >= 0 ? '&' : '?';
@@ -337,8 +352,8 @@ o
           }, mediaRetryCount * 1000);
         } else {
           console.log('[RECEIVER] all retries exhausted');
-          statusText.textContent = 'Video Load Failed';
-          sendStatus('idle');
+          // Return to splash instead of showing error
+          returnToSplash();
         }
       };
 
@@ -365,6 +380,7 @@ o
     }
 
     function stopMediaCasting() {
+      mediaStopping = true;
       stopStatusReporting();
       // Clear handlers BEFORE clearing src to prevent the retry loop
       mediaPlayer.oncanplay = null;
@@ -376,6 +392,8 @@ o
       mediaPlayer.load();
       mediaPlayer.classList.add('hidden');
       mediaPlayer.style.display = 'none';
+      // Reset flag after a tick so future playMedia() calls work
+      setTimeout(() => { mediaStopping = false; }, 100);
     }
 
     function stopAllMedia() {
@@ -472,6 +490,28 @@ o
       imageViewer.style.display = 'none';
       imageViewer.src = '';
     }
+
+    // ── Return to splash (home screen) ────────────────────────────────
+    function returnToSplash() {
+      stopAllMedia();
+      stopImageCasting();
+      cleanupMirroringConnection();
+      cleanupImageCastingWS();
+      videoPlayer.style.display = 'none';
+      splash.classList.remove('hidden');
+      connectionMessage.textContent = 'Waiting for connection...';
+      statusText.textContent = 'Ready to receive';
+      statusDot.classList.remove('connected');
+    }
+
+    // ── Sender disconnect handler ─────────────────────────────────────
+    context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (event) => {
+      console.log('[RECEIVER] Sender disconnected');
+      // If no senders remain, return to splash
+      if (context.getSenders().length === 0) {
+        returnToSplash();
+      }
+    });
 
     // Start Cast Receiver
     const options = new cast.framework.CastReceiverOptions();
