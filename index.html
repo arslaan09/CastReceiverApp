@@ -415,6 +415,10 @@
     // ── MJPEG mirroring ───────────────────────────────────────────────
     var isMirroringActive = false;
     var mjpegErrorTimer = null;
+    var mjpegRetryTimer = null;
+    var mjpegRetryCount = 0;
+    var currentMjpegUrl = '';
+    const MAX_MJPEG_RETRIES = 999; // Essentially unlimited retries
 
     function startMirroring(url) {
       cleanupMirroringConnection();
@@ -427,27 +431,65 @@
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
       isMirroringActive = true;
+      currentMjpegUrl = url;
+      mjpegRetryCount = 0;
 
+      setupMjpegHandlers(url);
+      mjpegViewer.src = url;
+    }
+
+    function setupMjpegHandlers(url) {
       mjpegViewer.onerror = () => {
-        if (isMirroringActive) {
-          if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
-          // Use a long timeout (10s) so brief interruptions during app backgrounding
-          // don't tear down the mirroring session prematurely
-          mjpegErrorTimer = setTimeout(() => {
-            if (isMirroringActive) { stopMirroring(); }
-          }, 10000);
-        }
+        if (!isMirroringActive) return;
+        console.log('[RECEIVER] MJPEG error - will retry (attempt ' + (mjpegRetryCount + 1) + ')');
+        // Instead of stopping, schedule a retry to reconnect to the MJPEG stream
+        if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
+        mjpegErrorTimer = setTimeout(() => {
+          if (isMirroringActive) {
+            retryMjpegConnection();
+          }
+        }, 2000); // Wait 2s before first retry attempt
       };
       mjpegViewer.onload = () => {
         if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
+        if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
+        mjpegRetryCount = 0; // Reset retry counter on successful load
         statusText.textContent = 'Mirroring Screen';
       };
-      mjpegViewer.src = url;
+    }
+
+    function retryMjpegConnection() {
+      if (!isMirroringActive || !currentMjpegUrl) return;
+      mjpegRetryCount++;
+
+      if (mjpegRetryCount > MAX_MJPEG_RETRIES) {
+        console.log('[RECEIVER] MJPEG max retries exhausted - stopping');
+        stopMirroring();
+        return;
+      }
+
+      // Exponential backoff: 2s, 3s, 4s, 5s, then cap at 5s
+      var delay = Math.min(5000, 2000 + (mjpegRetryCount * 1000));
+      console.log('[RECEIVER] MJPEG retry #' + mjpegRetryCount + ' in ' + delay + 'ms');
+      statusText.textContent = 'Reconnecting...';
+
+      mjpegRetryTimer = setTimeout(() => {
+        if (!isMirroringActive) return;
+        // Add cache-buster to force fresh connection
+        var sep = currentMjpegUrl.indexOf('?') >= 0 ? '&' : '?';
+        var retryUrl = currentMjpegUrl + sep + '_r=' + Date.now();
+        console.log('[RECEIVER] MJPEG reconnecting to: ' + retryUrl);
+        setupMjpegHandlers(retryUrl);
+        mjpegViewer.src = retryUrl;
+      }, delay);
     }
 
     function cleanupMirroringConnection() {
       isMirroringActive = false;
+      currentMjpegUrl = '';
+      mjpegRetryCount = 0;
       if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
+      if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
       mjpegViewer.onerror = null;
       mjpegViewer.onload = null;
       mjpegViewer.src = '';
@@ -508,28 +550,11 @@
     // ── Sender disconnect handler ─────────────────────────────────────
     context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (event) => {
       console.log('[RECEIVER] Sender disconnected. Mirroring active: ' + isMirroringActive);
-
-      if (context.getSenders().length === 0) {
-        if (!isMirroringActive) {
-          // Non-mirroring session — return to splash immediately
-          returnToSplash();
-        } else {
-          // Mirroring was active. The sender may have been killed or just backgrounded.
-          // Set a short timeout: if the MJPEG stream is still alive after 5s 
-          // (app just backgrounded), keep mirroring. If it died (app killed),
-          // the mjpegViewer.onerror already has a 10s timeout that will fire.
-          // We add an additional 15s safety net here.
-          console.log('[RECEIVER] Sender disconnected during mirroring — waiting for stream...');
-          statusText.textContent = 'Reconnecting...';
-          setTimeout(() => {
-            // If we still haven't received any stream updates and mirroring was not 
-            // explicitly stopped, return to splash
-            if (isMirroringActive && context.getSenders().length === 0) {
-              console.log('[RECEIVER] No sender reconnected after 15s — returning to splash');
-              returnToSplash();
-            }
-          }, 15000);
-        }
+      // If mirroring is active, do NOT tear down — the broadcast extension
+      // keeps sending the MJPEG stream independently of the main app's lifecycle.
+      // Only return to splash for non-mirroring sessions (media/image casting).
+      if (context.getSenders().length === 0 && !isMirroringActive) {
+        returnToSplash();
       }
     });
 
