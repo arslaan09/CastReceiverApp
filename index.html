@@ -415,6 +415,8 @@
     // ── MJPEG mirroring ───────────────────────────────────────────────
     var isMirroringActive = false;
     var mjpegErrorTimer = null;
+    var streamHealthTimer = null;
+    var currentStreamUrl = null;
 
     function startMirroring(url) {
       cleanupMirroringConnection();
@@ -427,15 +429,18 @@
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
       isMirroringActive = true;
+      currentStreamUrl = url;
 
       mjpegViewer.onerror = () => {
         if (isMirroringActive) {
           if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
-          // Use a long timeout (10s) so brief interruptions during app backgrounding
-          // don't tear down the mirroring session prematurely
+          // Short timeout — if stream drops, return to splash within 3s
           mjpegErrorTimer = setTimeout(() => {
-            if (isMirroringActive) { stopMirroring(); }
-          }, 10000);
+            if (isMirroringActive) {
+              console.log('[RECEIVER] MJPEG onerror timeout — returning to splash');
+              stopMirroring();
+            }
+          }, 3000);
         }
       };
       mjpegViewer.onload = () => {
@@ -443,11 +448,46 @@
         statusText.textContent = 'Mirroring Screen';
       };
       mjpegViewer.src = url;
+
+      // Start a periodic health check that pings the MJPEG server.
+      // If the server is dead (app killed/screen locked), the fetch fails
+      // and we immediately return to splash. This is more reliable than
+      // relying solely on <img> onerror which may not fire for dropped streams.
+      startStreamHealthCheck(url);
+    }
+
+    function startStreamHealthCheck(url) {
+      stopStreamHealthCheck();
+      // Extract base URL (remove /mjpeg path to get server root for a lightweight ping)
+      var baseUrl = url;
+      streamHealthTimer = setInterval(() => {
+        if (!isMirroringActive) { stopStreamHealthCheck(); return; }
+
+        // Try to reach the stream server. If the fetch fails, server is dead.
+        var controller = new AbortController();
+        var timeout = setTimeout(() => controller.abort(), 2500);
+
+        fetch(baseUrl, { signal: controller.signal, mode: 'no-cors' })
+          .then(() => { clearTimeout(timeout); })
+          .catch(() => {
+            clearTimeout(timeout);
+            if (isMirroringActive) {
+              console.log('[RECEIVER] Stream health check failed — server unreachable, returning to splash');
+              stopMirroring();
+            }
+          });
+      }, 3000);
+    }
+
+    function stopStreamHealthCheck() {
+      if (streamHealthTimer) { clearInterval(streamHealthTimer); streamHealthTimer = null; }
     }
 
     function cleanupMirroringConnection() {
       isMirroringActive = false;
+      currentStreamUrl = null;
       if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
+      stopStreamHealthCheck();
       mjpegViewer.onerror = null;
       mjpegViewer.onload = null;
       mjpegViewer.src = '';
@@ -508,11 +548,26 @@
     // ── Sender disconnect handler ─────────────────────────────────────
     context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (event) => {
       console.log('[RECEIVER] Sender disconnected. Mirroring active: ' + isMirroringActive);
-      // If mirroring is active, do NOT tear down — the broadcast extension
-      // keeps sending the MJPEG stream independently of the main app's lifecycle.
-      // Only return to splash for non-mirroring sessions (media/image casting).
-      if (context.getSenders().length === 0 && !isMirroringActive) {
-        returnToSplash();
+
+      if (context.getSenders().length === 0) {
+        if (!isMirroringActive) {
+          // Non-mirroring session — return to splash immediately
+          returnToSplash();
+        } else {
+          // Mirroring was active. The sender may have been killed or just backgrounded.
+          // Set a short timeout: if the MJPEG stream is still alive after 5s 
+          // (app just backgrounded), keep mirroring. If it died (app killed),
+          // the mjpegViewer.onerror already has a 10s timeout that will fire.
+          // We add an additional 15s safety net here.
+          console.log('[RECEIVER] Sender disconnected during mirroring — waiting for stream...');
+          statusText.textContent = 'Reconnecting...';
+          setTimeout(() => {
+            if (isMirroringActive && context.getSenders().length === 0) {
+              console.log('[RECEIVER] No sender reconnected after 5s — returning to splash');
+              returnToSplash();
+            }
+          }, 5000);
+        }
       }
     });
 
