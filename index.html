@@ -420,61 +420,6 @@
     var currentMjpegUrl = '';
     const MAX_MJPEG_RETRIES = 2; // ~6 seconds total before exiting to TV home
 
-    // Stream health watchdog: periodically checks if the MJPEG server is still alive.
-    // This is critical for the "outside app" scenario where the user stops the broadcast
-    // via the capsule while the sender app is suspended. The sender can't send
-    // STOP_MIRRORING because its process is frozen, and the <img> onerror may not
-    // fire when the MJPEG TCP connection is closed server-side. The watchdog detects
-    // the dead server and returns to splash.
-    var streamHealthTimer = null;
-    var consecutiveHealthFailures = 0;
-    const HEALTH_CHECK_INTERVAL = 4000; // Check every 4 seconds
-    const MAX_HEALTH_FAILURES = 2;      // 2 consecutive failures = stream dead (~8s)
-
-    function startStreamHealthCheck() {
-      stopStreamHealthCheck();
-      consecutiveHealthFailures = 0;
-      streamHealthTimer = setInterval(() => {
-        if (!isMirroringActive || !currentMjpegUrl) {
-          stopStreamHealthCheck();
-          return;
-        }
-        // Extract base URL (scheme + host + port) from the MJPEG URL for the health check.
-        // We fetch a lightweight /frame endpoint instead of the MJPEG stream itself.
-        var healthUrl;
-        try {
-          var u = new URL(currentMjpegUrl);
-          healthUrl = u.origin + '/frame?_h=' + Date.now();
-        } catch (e) {
-          healthUrl = currentMjpegUrl.replace('/mjpeg', '/frame') + '?_h=' + Date.now();
-        }
-        // Use AbortController to enforce a timeout shorter than our check interval
-        var controller = new AbortController();
-        var timeout = setTimeout(() => controller.abort(), 3000);
-        fetch(healthUrl, { signal: controller.signal, mode: 'no-cors' })
-          .then(() => {
-            clearTimeout(timeout);
-            // Server responded (even if opaque due to no-cors) — stream is alive
-            consecutiveHealthFailures = 0;
-          })
-          .catch(() => {
-            clearTimeout(timeout);
-            consecutiveHealthFailures++;
-            console.log('[RECEIVER] Stream health check failed (' +
-              consecutiveHealthFailures + '/' + MAX_HEALTH_FAILURES + ')');
-            if (consecutiveHealthFailures >= MAX_HEALTH_FAILURES) {
-              console.log('[RECEIVER] Stream server unreachable — returning to splash');
-              stopMirroring();
-            }
-          });
-      }, HEALTH_CHECK_INTERVAL);
-    }
-
-    function stopStreamHealthCheck() {
-      if (streamHealthTimer) { clearInterval(streamHealthTimer); streamHealthTimer = null; }
-      consecutiveHealthFailures = 0;
-    }
-
     function startMirroring(url) {
       cleanupMirroringConnection();
       cleanupImageCastingWS();
@@ -491,10 +436,6 @@
 
       setupMjpegHandlers(url);
       mjpegViewer.src = url;
-
-      // Start periodic health check to detect dead MJPEG server
-      // (handles the case where sender app is suspended and can't send STOP_MIRRORING)
-      startStreamHealthCheck();
     }
 
     function setupMjpegHandlers(url) {
@@ -549,7 +490,6 @@
       mjpegRetryCount = 0;
       if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
       if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
-      stopStreamHealthCheck();
       mjpegViewer.onerror = null;
       mjpegViewer.onload = null;
       mjpegViewer.src = '';
@@ -615,42 +555,6 @@
           // Non-mirroring session (media/image casting) — clean up immediately
           returnToSplash();
         } else {
-          // Mirroring was active — the MJPEG stream will die because the phone
-          // locked or the sender app disconnected. Give a short grace period for
-          // the stream to resume (e.g., quick app switch), then return to splash
-          // so the TV doesn't freeze on the last frame.
-          console.log('[RECEIVER] Sender gone during mirroring — waiting 3s grace period');
-          setTimeout(() => {
-            // If mirroring was already stopped (e.g., STOP_MIRRORING arrived), skip
-            if (!isMirroringActive) return;
-            console.log('[RECEIVER] Grace period expired — returning to splash');
-            returnToSplash();
-          }, 3000);
-        }
-          // Mirroring was active — the MJPEG stream will die because the phone
-          // locked or the sender app disconnected. Give a short grace period for
-          // the stream to resume (e.g., quick app switch), then return to splash
-          // so the TV doesn't freeze on the last frame.
-          console.log('[RECEIVER] Sender gone during mirroring — waiting 3s grace period');
-          setTimeout(() => {
-            // If mirroring was already stopped (e.g., STOP_MIRRORING arrived), skip
-            if (!isMirroringActive) return;
-            console.log('[RECEIVER] Grace period expired — returning to splash');
-            returnToSplash();
-          }, 3000);
-        }
-          // Mirroring was active — the MJPEG stream will die because the phone
-          // locked or the sender app disconnected. Give a short grace period for
-          // the stream to resume (e.g., quick app switch), then return to splash
-          // so the TV doesn't freeze on the last frame.
-          console.log('[RECEIVER] Sender gone during mirroring — waiting 3s grace period');
-          setTimeout(() => {
-            // If mirroring was already stopped (e.g., STOP_MIRRORING arrived), skip
-            if (!isMirroringActive) return;
-            console.log('[RECEIVER] Grace period expired — returning to splash');
-            returnToSplash();
-          }, 3000);
-        }
           // Mirroring was active — the MJPEG stream will die because the phone
           // locked or the sender app disconnected. Give a short grace period for
           // the stream to resume (e.g., quick app switch), then return to splash
