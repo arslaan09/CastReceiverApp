@@ -418,7 +418,7 @@
     var mjpegRetryTimer = null;
     var mjpegRetryCount = 0;
     var currentMjpegUrl = '';
-    const MAX_MJPEG_RETRIES = 3; // Retry for ~10 seconds total before exiting
+    const MAX_MJPEG_RETRIES = 2; // ~6 seconds total before exiting to TV home
 
     function startMirroring(url) {
       cleanupMirroringConnection();
@@ -442,7 +442,16 @@
       mjpegViewer.onerror = () => {
         if (!isMirroringActive) return;
         console.log('[RECEIVER] MJPEG error - will retry (attempt ' + (mjpegRetryCount + 1) + ')');
-        // Instead of stopping, schedule a retry to reconnect to the MJPEG stream
+
+        // INSTANT UI UPDATE: Hide broken image, show splash screen
+        mjpegViewer.classList.add('hidden');
+        mjpegViewer.style.display = 'none';
+        splash.classList.remove('hidden');
+        connectionMessage.textContent = 'Mirroring stopped or connection lost.';
+        statusText.textContent = 'Reconnecting...';
+        statusDot.classList.remove('connected');
+
+        // Schedule retry
         if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
         mjpegErrorTimer = setTimeout(() => {
           if (isMirroringActive) {
@@ -450,11 +459,18 @@
           }
         }, 2000); // Wait 2s before first retry attempt
       };
+
       mjpegViewer.onload = () => {
         if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
         if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
         mjpegRetryCount = 0; // Reset retry counter on successful load
+
+        // RESTORE UI: Hide splash, show image
+        splash.classList.add('hidden');
+        mjpegViewer.classList.remove('hidden');
+        mjpegViewer.style.display = 'block';
         statusText.textContent = 'Mirroring Screen';
+        statusDot.classList.add('connected');
       };
     }
 
@@ -464,9 +480,20 @@
 
       if (mjpegRetryCount > MAX_MJPEG_RETRIES) {
         console.log('[RECEIVER] MJPEG max retries exhausted - exiting app to TV home screen');
+
+        connectionMessage.textContent = 'Mirroring Ended';
+        statusText.textContent = 'Closing App...';
+
+        // 1. Clean up mirroring state
         stopMirroring();
-        // Fully stop the receiver app (returns TV to home) because the sender is gone
+
+        // 2. Ask Cast SDK to stop the session
         cast.framework.CastReceiverContext.getInstance().stop();
+
+        // 3. FORCE TV HOME: If the iOS sender is suspended in background, 
+        // the cast SDK might refuse to close the app because the sender isn't "disconnected" yet.
+        // window.close() forcefully terminates the HTML app on Chromecast.
+        setTimeout(() => { window.close(); }, 500);
         return;
       }
 
