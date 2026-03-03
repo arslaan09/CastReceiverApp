@@ -418,7 +418,7 @@
     var mjpegRetryTimer = null;
     var mjpegRetryCount = 0;
     var currentMjpegUrl = '';
-    const MAX_MJPEG_RETRIES = 999; // Essentially unlimited retries
+    const MAX_MJPEG_RETRIES = 3; // Retry for ~10 seconds total before exiting
 
     function startMirroring(url) {
       cleanupMirroringConnection();
@@ -463,8 +463,10 @@
       mjpegRetryCount++;
 
       if (mjpegRetryCount > MAX_MJPEG_RETRIES) {
-        console.log('[RECEIVER] MJPEG max retries exhausted - stopping');
+        console.log('[RECEIVER] MJPEG max retries exhausted - exiting app to TV home screen');
         stopMirroring();
+        // Fully stop the receiver app (returns TV to home) because the sender is gone
+        cast.framework.CastReceiverContext.getInstance().stop();
         return;
       }
 
