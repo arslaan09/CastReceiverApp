@@ -418,6 +418,7 @@
     var mjpegRetryTimer = null;
     var mjpegRetryCount = 0;
     var currentMjpegUrl = '';
+    var heartbeatInterval = null; // Detect silent connection drops
     const MAX_MJPEG_RETRIES = 2; // ~6 seconds total before exiting to TV home
 
     function startMirroring(url) {
@@ -438,10 +439,51 @@
       mjpegViewer.src = url;
     }
 
+    // Ping the extension port to detect if it died in the background
+    // (<img> onerror is not reliable for silent TCP drops)
+    function startHeartbeat(url) {
+      stopHeartbeat();
+      // Extract base URL (e.g. http://192.168.1.5:8088)
+      const baseUrl = url.split('/mjpeg')[0];
+
+      heartbeatInterval = setInterval(() => {
+        if (!isMirroringActive) return stopHeartbeat();
+
+        // Use a short timeout fetch to check if port is open
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1500);
+
+        fetch(baseUrl, { method: 'GET', signal: controller.signal })
+          .then(response => {
+            clearTimeout(timeoutId);
+            // Even a 404 is fine, it means the server is alive
+          })
+          .catch(err => {
+            // Network error or timeout = server is dead!
+            clearTimeout(timeoutId);
+            if (isMirroringActive) {
+              console.log('[RECEIVER] Heartbeat failed! Extension is dead.');
+              stopHeartbeat();
+              // Manually trigger onerror to force UI update & disconnect
+              if (mjpegViewer.onerror) mjpegViewer.onerror();
+            }
+          });
+      }, 2000);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
+    }
+
     function setupMjpegHandlers(url) {
       mjpegViewer.onerror = () => {
         if (!isMirroringActive) return;
         console.log('[RECEIVER] MJPEG error - will retry (attempt ' + (mjpegRetryCount + 1) + ')');
+
+        stopHeartbeat(); // Stop pinging during reconnection attempts
 
         // INSTANT UI UPDATE: Hide broken image, show splash screen
         mjpegViewer.classList.add('hidden');
@@ -464,6 +506,8 @@
         if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
         if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
         mjpegRetryCount = 0; // Reset retry counter on successful load
+
+        startHeartbeat(currentMjpegUrl); // Start heartbeat now that we're connected
 
         // RESTORE UI: Hide splash, show image
         splash.classList.add('hidden');
