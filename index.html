@@ -418,7 +418,9 @@
     var mjpegRetryTimer = null;
     var mjpegRetryCount = 0;
     var currentMjpegUrl = '';
-    const MAX_MJPEG_RETRIES = 5; // Retry a few times, then return to splash (prevents frozen last frame)
+    var frameWatchdog = null; // Detects when frames stop arriving (stream ended)
+    const MAX_MJPEG_RETRIES = 3; // Retry a few times, then return to splash
+    const FRAME_WATCHDOG_MS = 8000; // If no frame for 8s, consider stream dead
 
     function startMirroring(url) {
       cleanupMirroringConnection();
@@ -442,19 +444,29 @@
       mjpegViewer.onerror = () => {
         if (!isMirroringActive) return;
         console.log('[RECEIVER] MJPEG error - will retry (attempt ' + (mjpegRetryCount + 1) + ')');
-        // Instead of stopping, schedule a retry to reconnect to the MJPEG stream
+        if (frameWatchdog) { clearTimeout(frameWatchdog); frameWatchdog = null; }
         if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
         mjpegErrorTimer = setTimeout(() => {
           if (isMirroringActive) {
             retryMjpegConnection();
           }
-        }, 2000); // Wait 2s before first retry attempt
+        }, 1000); // Wait 1s before retry
       };
       mjpegViewer.onload = () => {
         if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
         if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
-        mjpegRetryCount = 0; // Reset retry counter on successful load
+        mjpegRetryCount = 0;
         statusText.textContent = 'Mirroring Screen';
+        // Reset frame watchdog — if no new frame arrives within FRAME_WATCHDOG_MS,
+        // the stream is dead (extension stopped). This catches cases where the HTTP
+        // connection silently drops without firing onerror.
+        if (frameWatchdog) clearTimeout(frameWatchdog);
+        frameWatchdog = setTimeout(() => {
+          if (isMirroringActive) {
+            console.log('[RECEIVER] Frame watchdog triggered - no frames for ' + FRAME_WATCHDOG_MS + 'ms - stopping');
+            stopMirroring();
+          }
+        }, FRAME_WATCHDOG_MS);
       };
     }
 
@@ -468,8 +480,8 @@
         return;
       }
 
-      // Exponential backoff: 2s, 3s, 4s, 5s, then cap at 5s
-      var delay = Math.min(5000, 2000 + (mjpegRetryCount * 1000));
+      // Short backoff: 1s, 2s, 3s (fast recovery or fast return to splash)
+      var delay = Math.min(3000, 1000 + (mjpegRetryCount * 1000));
       console.log('[RECEIVER] MJPEG retry #' + mjpegRetryCount + ' in ' + delay + 'ms');
       statusText.textContent = 'Reconnecting...';
 
@@ -490,6 +502,7 @@
       mjpegRetryCount = 0;
       if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
       if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
+      if (frameWatchdog) { clearTimeout(frameWatchdog); frameWatchdog = null; }
       mjpegViewer.onerror = null;
       mjpegViewer.onload = null;
       mjpegViewer.src = '';
