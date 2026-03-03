@@ -418,7 +418,57 @@
     var mjpegRetryTimer = null;
     var mjpegRetryCount = 0;
     var currentMjpegUrl = '';
-    const MAX_MJPEG_RETRIES = 2; // ~6 seconds total before exiting to TV home
+    const MAX_MJPEG_RETRIES = 3; // retries before exiting to TV home
+
+    // Stream stall watchdog: periodically probes the MJPEG server to detect
+    // when the broadcast extension has been killed (user stopped broadcast
+    // outside the app, phone locked, etc.). The <img> onerror may NOT fire
+    // reliably when the server-side TCP connection is closed on a
+    // multipart/x-mixed-replace stream. This watchdog is the safety net.
+    var stallWatchdogTimer = null;
+    var consecutiveProbeFailures = 0;
+    const STALL_PROBE_INTERVAL = 10000; // Check every 10 seconds
+    const MAX_PROBE_FAILURES = 2;       // 2 consecutive failures (~20s) = dead
+
+    function startStallWatchdog() {
+      stopStallWatchdog();
+      consecutiveProbeFailures = 0;
+      stallWatchdogTimer = setInterval(() => {
+        if (!isMirroringActive || !currentMjpegUrl) {
+          stopStallWatchdog();
+          return;
+        }
+        // Build a probe URL from the MJPEG origin. We use mode:'no-cors' so
+        // even opaque 200/404 responses count as "server alive". Only a true
+        // network error (connection refused) increments the failure counter.
+        var probeUrl;
+        try {
+          var u = new URL(currentMjpegUrl);
+          probeUrl = u.origin + '/?_probe=' + Date.now();
+        } catch (e) {
+          return; // malformed URL, skip this cycle
+        }
+        var ctrl = new AbortController();
+        var to = setTimeout(() => ctrl.abort(), 5000);
+        fetch(probeUrl, { signal: ctrl.signal, mode: 'no-cors' })
+          .then(() => { clearTimeout(to); consecutiveProbeFailures = 0; })
+          .catch(() => {
+            clearTimeout(to);
+            consecutiveProbeFailures++;
+            console.log('[RECEIVER] Stall watchdog probe failed (' +
+              consecutiveProbeFailures + '/' + MAX_PROBE_FAILURES + ')');
+            if (consecutiveProbeFailures >= MAX_PROBE_FAILURES) {
+              console.log('[RECEIVER] MJPEG server unreachable — returning to splash');
+              stopMirroring();
+            }
+          });
+      }, STALL_PROBE_INTERVAL);
+    }
+
+    function stopStallWatchdog() {
+      if (stallWatchdogTimer) { clearInterval(stallWatchdogTimer); stallWatchdogTimer = null; }
+      consecutiveProbeFailures = 0;
+    }
 
     function startMirroring(url) {
       cleanupMirroringConnection();
@@ -436,6 +486,9 @@
 
       setupMjpegHandlers(url);
       mjpegViewer.src = url;
+
+      // Start stall watchdog to detect dead MJPEG server when onerror doesn't fire
+      startStallWatchdog();
     }
 
     function setupMjpegHandlers(url) {
@@ -490,6 +543,7 @@
       mjpegRetryCount = 0;
       if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
       if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
+      stopStallWatchdog();
       mjpegViewer.onerror = null;
       mjpegViewer.onload = null;
       mjpegViewer.src = '';
@@ -555,17 +609,16 @@
           // Non-mirroring session (media/image casting) — clean up immediately
           returnToSplash();
         } else {
-          // Mirroring was active — the MJPEG stream will die because the phone
-          // locked or the sender app disconnected. Give a short grace period for
-          // the stream to resume (e.g., quick app switch), then return to splash
-          // so the TV doesn't freeze on the last frame.
-          console.log('[RECEIVER] Sender gone during mirroring — waiting 3s grace period');
-          setTimeout(() => {
-            // If mirroring was already stopped (e.g., STOP_MIRRORING arrived), skip
-            if (!isMirroringActive) return;
-            console.log('[RECEIVER] Grace period expired — returning to splash');
-            returnToSplash();
-          }, 3000);
+          // Mirroring is active — the MJPEG stream is served by the broadcast
+          // extension on its own port (8088), completely independent of the Cast
+          // SDK sender connection. The sender disconnects when the app is
+          // backgrounded, but the extension keeps streaming frames.
+          //
+          // Do NOT return to splash here. If the MJPEG stream actually dies
+          // (user stopped broadcast, phone locked, extension killed), the
+          // <img> onerror handler + retry mechanism will detect the dead stream
+          // and call stopMirroring() → returnToSplash() automatically.
+          console.log('[RECEIVER] Sender gone during active mirroring — MJPEG stream is independent, staying on mirroring view');
         }
       }
     });
