@@ -418,7 +418,7 @@
     var mjpegRetryTimer = null;
     var mjpegRetryCount = 0;
     var currentMjpegUrl = '';
-    const MAX_MJPEG_RETRIES = 999; // Essentially unlimited retries
+    const MAX_MJPEG_RETRIES = 5; // Retry a few times, then return to splash (prevents frozen last frame)
 
     function startMirroring(url) {
       cleanupMirroringConnection();
@@ -550,9 +550,11 @@
     // ── Sender disconnect handler ─────────────────────────────────────
     context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (event) => {
       console.log('[RECEIVER] Sender disconnected. Mirroring active: ' + isMirroringActive);
-      // If mirroring is active, do NOT tear down — the broadcast extension
-      // keeps sending the MJPEG stream independently of the main app's lifecycle.
-      // Only return to splash for non-mirroring sessions (media/image casting).
+      // When sender disconnects:
+      // - If mirroring is active, give it a grace period. If the MJPEG stream
+      //   also dies (extension stopped), the onerror retry logic will exhaust
+      //   retries and call returnToSplash.
+      // - If no mirroring, return to splash immediately.
       if (context.getSenders().length === 0 && !isMirroringActive) {
         returnToSplash();
       }
