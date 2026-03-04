@@ -403,7 +403,13 @@
     // ── Image display ─────────────────────────────────────────────────
     function showImageBlob(blob) {
       let url = URL.createObjectURL(blob);
-      imageViewer.onload = () => URL.revokeObjectURL(url);
+      imageViewer.onload = () => {
+        URL.revokeObjectURL(url);
+        // Send confirmation to iOS sender that the image is now visible on TV
+        try {
+          context.sendCustomMessage(NAMESPACE, undefined, { type: 'IMAGE_DISPLAYED' });
+        } catch (e) { /* sender may not be connected */ }
+      };
       imageViewer.src = url;
       splash.classList.add('hidden');
       videoPlayer.style.display = 'none';
