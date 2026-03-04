@@ -214,8 +214,8 @@
     mediaPlayer.addEventListener('ended', () => {
       stopStatusReporting();
       sendStatus('ended');
-      // Return to splash screen after video finishes
-      setTimeout(() => returnToSplash(), 1500);
+      // Stay on last frame — don't return to splash.
+      // The user can replay, go next, or stop from the mobile controls.
     });
     mediaPlayer.addEventListener('error', () => {
       // Ignore errors during intentional stop
