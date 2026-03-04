@@ -253,6 +253,14 @@
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
 
+      // STOP_CASTING: user left the video/audio/image player screen.
+      // Stop playback and return to splash — but keep the receiver alive
+      // so the user can cast something else without reconnecting.
+      if (data.type === 'STOP_CASTING') {
+        console.log('[RECEIVER] STOP_CASTING received — returning to splash');
+        returnToSplash();
+      }
+
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroringConnection();
         cleanupImageCastingWS();
@@ -564,10 +572,9 @@
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
-
-      // Close the receiver app so the TV returns to its own home screen.
-      // Without this, the Cast receiver stays loaded showing the splash page.
-      setTimeout(() => { context.stop(); }, 500);
+      // Stay on the receiver splash — do NOT call context.stop().
+      // The Cast session stays alive so the user can cast something else
+      // without reconnecting.
     }
 
     // ── WebSocket image casting ───────────────────────────────────────
@@ -646,10 +653,11 @@
           console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience');
           mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
         } else {
-          // Nothing active — clean up and exit to TV home screen.
-          console.log('[RECEIVER] Sender gone, nothing active — closing receiver');
+          // Nothing active — return to splash and wait for next cast command.
+          // Do NOT call context.stop() — keep the receiver alive so the user
+          // can cast something else without reconnecting.
+          console.log('[RECEIVER] Sender gone, nothing active — returning to splash');
           returnToSplash();
-          setTimeout(() => { context.stop(); }, 500);
         }
       }
     });
