@@ -612,14 +612,30 @@
     }
 
     // ── Sender disconnect handler ─────────────────────────────────────
+
+    // Helper: true if a video or audio is loaded in the media player
+    function isMediaActive() {
+      return mediaPlayer.src && mediaPlayer.src !== '' && !mediaPlayer.classList.contains('hidden');
+    }
+
+    // Helper: true if an image is currently displayed on screen
+    function isImageActive() {
+      return !imageViewer.classList.contains('hidden') && imageViewer.src && imageViewer.src !== '';
+    }
+
     context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (event) => {
-      console.log('[RECEIVER] Sender disconnected. Mirroring active: ' + isMirroringActive);
+      const mediaActive = isMediaActive();
+      const imageActive = isImageActive();
+      console.log('[RECEIVER] Sender disconnected. Mirroring: ' + isMirroringActive +
+                  ', Media: ' + mediaActive + ', Image: ' + imageActive);
       if (context.getSenders().length === 0) {
-        if (!isMirroringActive) {
-          // Not mirroring (or STOP_MIRRORING already processed) — clean up and exit.
-          returnToSplash();
-          setTimeout(() => { context.stop(); }, 500);
-        } else {
+        if (mediaActive || imageActive) {
+          // Video, audio, or image is actively being cast on the TV.
+          // The Chromecast plays media via its own HTTP fetch — it does NOT need
+          // the sender app to stay connected. Do NOT stop playback or close the
+          // receiver. The user backgrounded the iOS app; media continues on TV.
+          console.log('[RECEIVER] Sender gone but media/image active — keeping playback alive');
+        } else if (isMirroringActive) {
           // Mirroring is active — the MJPEG stream is served by the broadcast
           // extension on its own port (8088), completely independent of the Cast
           // SDK sender connection. The sender disconnects when the app is
@@ -629,6 +645,11 @@
           // will die shortly. Reduce retry patience so we detect it fast.
           console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience');
           mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
+        } else {
+          // Nothing active — clean up and exit to TV home screen.
+          console.log('[RECEIVER] Sender gone, nothing active — closing receiver');
+          returnToSplash();
+          setTimeout(() => { context.stop(); }, 500);
         }
       }
     });
