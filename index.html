@@ -564,6 +564,10 @@
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
+
+      // Close the receiver app so the TV returns to its own home screen.
+      // Without this, the Cast receiver stays loaded showing the splash page.
+      setTimeout(() => { context.stop(); }, 500);
     }
 
     // ── WebSocket image casting ───────────────────────────────────────
@@ -612,19 +616,19 @@
       console.log('[RECEIVER] Sender disconnected. Mirroring active: ' + isMirroringActive);
       if (context.getSenders().length === 0) {
         if (!isMirroringActive) {
-          // Non-mirroring session (media/image casting) — clean up immediately
+          // Not mirroring (or STOP_MIRRORING already processed) — clean up and exit.
           returnToSplash();
+          setTimeout(() => { context.stop(); }, 500);
         } else {
           // Mirroring is active — the MJPEG stream is served by the broadcast
           // extension on its own port (8088), completely independent of the Cast
           // SDK sender connection. The sender disconnects when the app is
           // backgrounded, but the extension keeps streaming frames.
           //
-          // Do NOT return to splash here. If the MJPEG stream actually dies
-          // (user stopped broadcast, phone locked, extension killed), the
-          // <img> onerror handler + retry mechanism will detect the dead stream
-          // and call stopMirroring() → returnToSplash() automatically.
-          console.log('[RECEIVER] Sender gone during active mirroring — MJPEG stream is independent, staying on mirroring view');
+          // However, if the user actually stopped the broadcast, the MJPEG stream
+          // will die shortly. Reduce retry patience so we detect it fast.
+          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience');
+          mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
         }
       }
     });
