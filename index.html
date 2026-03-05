@@ -674,21 +674,17 @@
           // SDK sender connection. The sender disconnects when the app is
           // backgrounded, but the extension keeps streaming frames.
           //
-          // However, if the user actually stopped the broadcast, the MJPEG stream
-          // will die shortly. Reduce retry patience AND start a 5-second timer
-          // to fully close the receiver app (returning TV to home screen).
-          // If the CLOSE_RECEIVER message arrives via the custom channel before
-          // this timer fires, that handler closes us first (which is fine).
-          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience and arming close timer');
+          // If the user actually stopped the broadcast (red capsule), the MJPEG
+          // server dies and the stream errors out. The onerror handler and stall
+          // watchdog will detect this and close the receiver (context.stop())
+          // since no senders are connected. The iOS app also sends CLOSE_RECEIVER
+          // when it returns to foreground after an external stop.
+          //
+          // We reduce retry patience so detection is fast when the stream does die,
+          // but we do NOT set a timer — the stream may be perfectly healthy if the
+          // user just backgrounded the app.
+          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience (stream continues via extension)');
           mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
-          // Arm a safety timer: if the stream dies within 5s, close the receiver
-          // entirely so the TV returns to its home screen (not our splash).
-          setTimeout(() => {
-            if (isMirroringActive && context.getSenders().length === 0) {
-              console.log('[RECEIVER] Sender still gone and mirroring still active after 5s — closing receiver');
-              stopMirroring(true);  // closeApp=true → context.stop()
-            }
-          }, 5000);
         } else {
           // Nothing active — return to splash and wait for next cast command.
           // Do NOT call context.stop() — keep the receiver alive so the user
