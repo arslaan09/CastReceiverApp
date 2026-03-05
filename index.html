@@ -253,18 +253,6 @@
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
 
-      // CLOSE_RECEIVER: sender wants us to fully exit the receiver app.
-      // This is used when mirroring is stopped externally (red dot / Control Center)
-      // so the TV goes back to its native home screen, not our splash.
-      if (data.type === 'CLOSE_RECEIVER') {
-        console.log('[RECEIVER] CLOSE_RECEIVER received — exiting receiver app');
-        cleanupMirroringConnection();
-        stopAllMedia();
-        stopImageCasting();
-        cleanupImageCastingWS();
-        context.stop();  // Fully closes Cast Receiver → TV returns to home screen
-      }
-
       // STOP_CASTING: user left the video/audio/image player screen.
       // Stop playback and return to splash — but keep the receiver alive
       // so the user can cast something else without reconnecting.
@@ -453,8 +441,8 @@
     // multipart/x-mixed-replace stream. This watchdog is the safety net.
     var stallWatchdogTimer = null;
     var consecutiveProbeFailures = 0;
-    const STALL_PROBE_INTERVAL = 5000;  // Check every 5 seconds
-    const MAX_PROBE_FAILURES = 2;       // 2 consecutive failures (~10s) = dead
+    const STALL_PROBE_INTERVAL = 10000; // Check every 10 seconds
+    const MAX_PROBE_FAILURES = 2;       // 2 consecutive failures (~20s) = dead
 
     function startStallWatchdog() {
       stopStallWatchdog();
@@ -484,12 +472,8 @@
             console.log('[RECEIVER] Stall watchdog probe failed (' +
               consecutiveProbeFailures + '/' + MAX_PROBE_FAILURES + ')');
             if (consecutiveProbeFailures >= MAX_PROBE_FAILURES) {
-              // If no senders are connected, fully close the receiver app
-              // (TV goes back to home screen). Otherwise just return to splash.
-              var noSenders = context.getSenders().length === 0;
-              console.log('[RECEIVER] MJPEG server unreachable — ' +
-                (noSenders ? 'closing receiver (no senders)' : 'returning to splash'));
-              stopMirroring(noSenders);
+              console.log('[RECEIVER] MJPEG server unreachable — returning to splash');
+              stopMirroring();
             }
           });
       }, STALL_PROBE_INTERVAL);
@@ -546,11 +530,8 @@
       mjpegRetryCount++;
 
       if (mjpegRetryCount > MAX_MJPEG_RETRIES) {
-        // If no senders are connected, fully close the receiver app
-        var noSenders = context.getSenders().length === 0;
-        console.log('[RECEIVER] MJPEG max retries exhausted - ' +
-          (noSenders ? 'closing receiver (no senders)' : 'returning to splash'));
-        stopMirroring(noSenders);
+        console.log('[RECEIVER] MJPEG max retries exhausted - stopping');
+        stopMirroring();
         return;
       }
 
@@ -584,23 +565,16 @@
       mjpegViewer.style.display = 'none';
     }
 
-    function stopMirroring(closeApp) {
+    function stopMirroring() {
       cleanupMirroringConnection();
       cleanupImageCastingWS();
       stopAllMedia();
       videoPlayer.style.display = 'none';
-
-      if (closeApp) {
-        // Fully exit the Cast Receiver app → TV returns to home screen.
-        // Used when mirroring is stopped externally (no sender to keep alive for).
-        console.log('[RECEIVER] stopMirroring(closeApp=true) — exiting receiver');
-        context.stop();
-      } else {
-        // Stay on the receiver splash — the Cast session stays alive so the
-        // user can cast something else without reconnecting.
-        splash.classList.remove('hidden');
-        statusText.textContent = 'Ready to receive';
-      }
+      splash.classList.remove('hidden');
+      statusText.textContent = 'Ready to receive';
+      // Stay on the receiver splash — do NOT call context.stop().
+      // The Cast session stays alive so the user can cast something else
+      // without reconnecting.
     }
 
     // ── WebSocket image casting ───────────────────────────────────────
@@ -674,12 +648,10 @@
           // SDK sender connection. The sender disconnects when the app is
           // backgrounded, but the extension keeps streaming frames.
           //
-          // DO NOTHING HERE. The receiver is fully independent of the sender
-          // during mirroring. If the user stops the broadcast (red capsule),
-          // the extension's MJPEG server dies and the stall watchdog detects
-          // it within ~10 seconds, then closes the receiver (context.stop()).
-          // The iOS app also sends CLOSE_RECEIVER when it returns to foreground.
-          console.log('[RECEIVER] Sender gone during active mirroring — stream continues independently via extension (no action needed)');
+          // However, if the user actually stopped the broadcast, the MJPEG stream
+          // will die shortly. Reduce retry patience so we detect it fast.
+          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience');
+          mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
         } else {
           // Nothing active — return to splash and wait for next cast command.
           // Do NOT call context.stop() — keep the receiver alive so the user
