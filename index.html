@@ -453,8 +453,8 @@
     // multipart/x-mixed-replace stream. This watchdog is the safety net.
     var stallWatchdogTimer = null;
     var consecutiveProbeFailures = 0;
-    const STALL_PROBE_INTERVAL = 10000; // Check every 10 seconds
-    const MAX_PROBE_FAILURES = 2;       // 2 consecutive failures (~20s) = dead
+    const STALL_PROBE_INTERVAL = 5000;  // Check every 5 seconds
+    const MAX_PROBE_FAILURES = 2;       // 2 consecutive failures (~10s) = dead
 
     function startStallWatchdog() {
       stopStallWatchdog();
@@ -674,17 +674,12 @@
           // SDK sender connection. The sender disconnects when the app is
           // backgrounded, but the extension keeps streaming frames.
           //
-          // If the user actually stopped the broadcast (red capsule), the MJPEG
-          // server dies and the stream errors out. The onerror handler and stall
-          // watchdog will detect this and close the receiver (context.stop())
-          // since no senders are connected. The iOS app also sends CLOSE_RECEIVER
-          // when it returns to foreground after an external stop.
-          //
-          // We reduce retry patience so detection is fast when the stream does die,
-          // but we do NOT set a timer — the stream may be perfectly healthy if the
-          // user just backgrounded the app.
-          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience (stream continues via extension)');
-          mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
+          // DO NOTHING HERE. The receiver is fully independent of the sender
+          // during mirroring. If the user stops the broadcast (red capsule),
+          // the extension's MJPEG server dies and the stall watchdog detects
+          // it within ~10 seconds, then closes the receiver (context.stop()).
+          // The iOS app also sends CLOSE_RECEIVER when it returns to foreground.
+          console.log('[RECEIVER] Sender gone during active mirroring — stream continues independently via extension (no action needed)');
         } else {
           // Nothing active — return to splash and wait for next cast command.
           // Do NOT call context.stop() — keep the receiver alive so the user
