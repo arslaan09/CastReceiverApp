@@ -131,6 +131,19 @@
     .hidden {
       display: none !important;
     }
+
+    /* ── Landscape mirroring: rotate the viewer -90° so the portrait stream
+       content appears correctly oriented for a landscape phone screen.
+       A 100vh × 100vw element (1080 × 1920 on a 1920×1080 TV) rotated -90°
+       around its own centre fills the landscape TV perfectly.               */
+    #mjpeg-viewer.landscape-mode {
+      width: 100vh !important;
+      height: 100vw !important;
+      top: 50% !important;
+      left: 50% !important;
+      transform: translate(-50%, -50%) rotate(-90deg) !important;
+      transform-origin: center center !important;
+    }
   </style>
 </head>
 
@@ -248,10 +261,19 @@
 
       if (data.type === 'START_MIRRORING') {
         stopAllMedia();
-        if (data.streamUrl) startMirroring(data.streamUrl);
+        if (data.streamUrl) {
+          startMirroring(data.streamUrl);
+          // Apply initial orientation immediately so the frame appears rotated correctly
+          if (data.orientation) applyOrientation(data.orientation);
+        }
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
+
+      // Sent by iOS OrientationReporter when device is rotated during active mirroring
+      if (data.type === 'ORIENTATION_CHANGED') {
+        if (isMirroringActive) applyOrientation(data.orientation);
+      }
 
       // STOP_CASTING: user left the video/audio/image player screen.
       // Stop playback and return to splash — but keep the receiver alive
@@ -426,6 +448,20 @@
       statusText.textContent = 'Showing Image';
     }
 
+    // ── Orientation helpers ───────────────────────────────────────────
+    // Apply portrait/landscape rotation to the MJPEG viewer container.
+    // In landscape mode the iOS phone stream arrives as portrait-aspect content;
+    // rotating the <img> element -90° makes it appear correctly on the TV.
+    function applyOrientation(orientation) {
+      if (orientation === 'landscape') {
+        mjpegViewer.classList.add('landscape-mode');
+        console.log('[RECEIVER] Orientation → landscape (rotate -90°)');
+      } else {
+        mjpegViewer.classList.remove('landscape-mode');
+        console.log('[RECEIVER] Orientation → portrait (no rotation)');
+      }
+    }
+
     // ── MJPEG mirroring ───────────────────────────────────────────────
     var isMirroringActive = false;
     var mjpegErrorTimer = null;
@@ -566,6 +602,8 @@
     }
 
     function stopMirroring() {
+      // Reset orientation so next session starts in portrait by default
+      applyOrientation('portrait');
       cleanupMirroringConnection();
       cleanupImageCastingWS();
       stopAllMedia();
