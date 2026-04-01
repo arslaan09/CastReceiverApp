@@ -131,39 +131,6 @@
     .hidden {
       display: none !important;
     }
-
-    /* ── MJPEG mirror viewer ─────────────────────────────────────────────
-       Portrait (default): the stream sends portrait-aspect frames (narrow).
-       object-fit:contain lets them appear as a centred portrait strip on the
-       landscape TV — the container is full-screen but the IMAGE is narrow.
-
-       Landscape: the stream sends landscape-aspect frames (full 16:9).
-       Switching to width:100% height:100% ensures the image immediately
-       expands to fill the entire TV screen edge-to-edge.
-
-       The CSS transition makes the switch smooth in both directions.      */
-    #mjpeg-viewer {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
-      background: black;
-      z-index: 5;
-      will-change: contents;
-      image-rendering: auto;
-      transform: translateZ(0);
-      /* Smooth orientation switch */
-      transition: object-fit 0s, width 0.2s ease, height 0.2s ease;
-    }
-
-    /* Landscape: force full-screen fill so the wider stream fills the TV */
-    #mjpeg-viewer.landscape-mode {
-      width: 100vw;
-      height: 100vh;
-      object-fit: cover;
-    }
   </style>
 </head>
 
@@ -184,8 +151,9 @@
   </div>
 
   <video id="video-player" autoplay playsinline muted></video>
-  <img id="mjpeg-viewer" class="hidden">
-  <video id="media-player" class="hidden" playsinline preload="auto"
+  <img id="mjpeg-viewer" class="hidden"
+    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 5; background: black; will-change: contents; transform: translateZ(0); image-rendering: auto;">
+  <video id="media-player" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 6; background: black;">
@@ -199,78 +167,18 @@
     const mjpegViewer = document.getElementById('mjpeg-viewer');
     const mediaPlayer = document.getElementById('media-player');
     const imageViewer = document.getElementById('image-viewer');
-    const castMediaPlayer = document.getElementById('cast-media-player');
     const connectionMessage = document.getElementById('connectionMessage');
     const statusText = document.getElementById('statusText');
     const statusDot = document.getElementById('statusDot');
 
     const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
 
-    // Flag to suppress error handlers during intentional media stop
-    var mediaStopping = false;
-
-    // ── Status reporting ──────────────────────────────────────────────
-    // Send playback state back to the iOS sender so it can sync the local player.
-    let statusInterval = null;
-
-    function sendStatus(state) {
-      try {
-        const msg = {
-          type: 'MEDIA_STATUS',
-          state: state,
-          currentTime: mediaPlayer.currentTime || 0,
-          duration: (mediaPlayer.duration && isFinite(mediaPlayer.duration)) ? mediaPlayer.duration : 0
-        };
-        context.sendCustomMessage(NAMESPACE, undefined, msg);
-      } catch (e) { /* sender may not be connected yet */ }
-    }
-
-    function startStatusReporting() {
-      if (statusInterval) return;
-      // Report position every second while playing so iOS can drift-correct
-      statusInterval = setInterval(() => {
-        if (!mediaPlayer.paused && !mediaPlayer.ended) {
-          sendStatus('playing');
-        }
-      }, 1000);
-    }
-
-    function stopStatusReporting() {
-      if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
-    }
-
-    // Wire up media player events → send status to iOS
-    mediaPlayer.addEventListener('playing', () => { sendStatus('playing'); startStatusReporting(); });
-    mediaPlayer.addEventListener('pause', () => { if (!mediaStopping) { stopStatusReporting(); sendStatus('paused'); } });
-    mediaPlayer.addEventListener('waiting', () => { if (!mediaStopping) sendStatus('buffering'); });
-    mediaPlayer.addEventListener('ended', () => {
-      stopStatusReporting();
-      sendStatus('ended');
-      // Stay on last frame — don't return to splash.
-      // The user can replay, go next, or stop from the mobile controls.
-    });
-    mediaPlayer.addEventListener('error', () => {
-      // Ignore errors during intentional stop
-      if (mediaStopping) return;
-      stopStatusReporting();
-      sendStatus('idle');
-    });
-    // Unmute after first frame arrives (Chromecast may require muted autoplay first)
-    mediaPlayer.addEventListener('loadeddata', () => {
-      console.log('[RECEIVER] loadeddata — unmuting');
-      mediaPlayer.muted = false;
-    });
-    mediaPlayer.addEventListener('seeked', () => {
-      sendStatus(mediaPlayer.paused ? 'paused' : 'playing');
-    });
-
-    // ── Custom message handler ────────────────────────────────────────
+    // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
       let data = event.data;
       if (typeof data === 'string') {
         try { data = JSON.parse(data); } catch (e) { return; }
       }
-      console.log('[RECEIVER] Got message type=' + (data.type || '?'));
 
       if (data.type === 'CONNECTION_ESTABLISHED') {
         connectionMessage.textContent = 'Connected to ' + (data.deviceName || 'iOS Device');
@@ -279,28 +187,12 @@
       }
 
       if (data.type === 'START_MIRRORING') {
-        stopAllMedia();
-        if (data.streamUrl) {
-          startMirroring(data.streamUrl);
-          // Apply initial orientation immediately so the frame appears rotated correctly
-          if (data.orientation) applyOrientation(data.orientation);
-        }
+        stopImageCasting();
+        cleanupImageCastingWS();
+        if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
-
-      // Sent by iOS OrientationReporter when device is rotated during active mirroring
-      if (data.type === 'ORIENTATION_CHANGED') {
-        if (isMirroringActive) applyOrientation(data.orientation);
-      }
-
-      // STOP_CASTING: user left the video/audio/image player screen.
-      // Stop playback and return to splash — but keep the receiver alive
-      // so the user can cast something else without reconnecting.
-      if (data.type === 'STOP_CASTING') {
-        console.log('[RECEIVER] STOP_CASTING received — returning to splash');
-        returnToSplash();
-      }
 
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroringConnection();
@@ -317,148 +209,53 @@
         cleanupMirroringConnection();
         cleanupImageCastingWS();
         stopImageCasting();
-        playMedia(data.videoUrl, data.autoplay !== false);  // default autoplay=true
-        statusText.textContent = 'Video Loading...';
+        playVideo(data.videoUrl);
       }
 
       if (data.type === 'CAST_AUDIO') {
         cleanupMirroringConnection();
         cleanupImageCastingWS();
         stopImageCasting();
-        playMedia(data.audioUrl, data.autoplay !== false);
-        statusText.textContent = 'Audio Loading...';
+        playVideo(data.audioUrl);
+        statusText.textContent = 'Playing Audio';
       }
 
       if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
-
-      if (data.type === 'SET_VOLUME') {
-        const v = parseFloat(data.volume);
-        if (!isNaN(v)) mediaPlayer.volume = Math.max(0, Math.min(1, v));
-      }
     });
 
-    // ── Media playback ────────────────────────────────────────────────
-    var mediaRetryCount = 0;
-    const MAX_MEDIA_RETRIES = 4;
-    let mediaRetryTimer = null;
-
-    function playMedia(url, autoplay) {
-      console.log('[RECEIVER] playMedia called, url=' + url + ' autoplay=' + autoplay);
-      mediaRetryCount = 0;
-      attemptPlayMedia(url, autoplay);
-    }
-
-    function attemptPlayMedia(url, autoplay) {
-      console.log('[RECEIVER] attemptPlayMedia attempt=' + (mediaRetryCount + 1));
+    function playVideo(url) {
       splash.classList.add('hidden');
       mediaPlayer.classList.remove('hidden');
       mediaPlayer.style.display = 'block';
-      videoPlayer.style.display = 'none';
-
-      stopStatusReporting();
-      if (mediaRetryTimer) { clearTimeout(mediaRetryTimer); mediaRetryTimer = null; }
-
-      // Remove old listeners to avoid duplicates
-      mediaPlayer.oncanplay = null;
-      mediaPlayer.onerror = null;
-
-      // Set up success handler
-      mediaPlayer.oncanplay = function () {
-        console.log('[RECEIVER] canplay fired — video ready');
-        mediaPlayer.oncanplay = null; // fire once
-        statusText.textContent = 'Playing Video';
-        if (autoplay) {
-          const p = mediaPlayer.play();
-          if (p) p.catch(function (e) {
-            console.log('[RECEIVER] play() rejected: ' + e + ' — trying muted');
-            mediaPlayer.muted = true;
-            mediaPlayer.play().catch(function () { });
-          });
-        } else {
-          mediaPlayer.pause();
-          sendStatus('paused');
-          statusText.textContent = 'Video Ready';
-        }
-      };
-
-      // Set up error handler with retry
-      mediaPlayer.onerror = function () {
-        // Ignore errors during intentional stop
-        if (mediaStopping) return;
-        const err = mediaPlayer.error;
-        console.log('[RECEIVER] media error: code=' + (err ? err.code : '?') + ' msg=' + (err ? err.message : '?'));
-        mediaRetryCount++;
-        if (mediaRetryCount <= MAX_MEDIA_RETRIES) {
-          console.log('[RECEIVER] retrying in ' + (mediaRetryCount * 1000) + 'ms (attempt ' + (mediaRetryCount + 1) + ')');
-          statusText.textContent = 'Loading...';
-          mediaRetryTimer = setTimeout(function () {
-            // Append cache-buster to force a fresh request
-            const sep = url.indexOf('?') >= 0 ? '&' : '?';
-            const retryUrl = url + sep + 'retry=' + mediaRetryCount;
-            mediaPlayer.src = retryUrl;
-            mediaPlayer.load();
-          }, mediaRetryCount * 1000);
-        } else {
-          console.log('[RECEIVER] all retries exhausted');
-          // Return to splash instead of showing error
-          returnToSplash();
-        }
-      };
-
-      // Kick off load
       mediaPlayer.src = url;
-      mediaPlayer.load();
+      mediaPlayer.play();
+      statusText.textContent = 'Playing Video';
+      videoPlayer.style.display = 'none';
     }
 
     function handleMediaControl(command, value) {
+      if (!mediaPlayer) return;
       switch (command) {
-        case 'play':
-          mediaPlayer.play();
-          break;
-        case 'pause':
-          mediaPlayer.pause();
-          break;
+        case 'play': mediaPlayer.play(); break;
+        case 'pause': mediaPlayer.pause(); break;
         case 'seek':
         case 'seekTo':
-          mediaPlayer.currentTime = parseFloat(value) || 0;
-          // Send updated status immediately after seek
-          setTimeout(() => sendStatus(mediaPlayer.paused ? 'paused' : 'playing'), 100);
+          // iOS sends absolute seek position (seconds from start)
+          mediaPlayer.currentTime = value;
           break;
       }
     }
 
     function stopMediaCasting() {
-      mediaStopping = true;
-      stopStatusReporting();
-      // Clear handlers BEFORE clearing src to prevent the retry loop
-      mediaPlayer.oncanplay = null;
-      mediaPlayer.onerror = null;
-      if (mediaRetryTimer) { clearTimeout(mediaRetryTimer); mediaRetryTimer = null; }
-      mediaRetryCount = 0;
       mediaPlayer.pause();
-      mediaPlayer.removeAttribute('src');
-      mediaPlayer.load();
+      mediaPlayer.src = "";
       mediaPlayer.classList.add('hidden');
       mediaPlayer.style.display = 'none';
-      // Reset flag after a tick so future playMedia() calls work
-      setTimeout(() => { mediaStopping = false; }, 100);
     }
 
-    function stopAllMedia() {
-      stopMediaCasting();
-      stopImageCasting();
-    }
-
-    // ── Image display ─────────────────────────────────────────────────
     function showImageBlob(blob) {
       let url = URL.createObjectURL(blob);
-      imageViewer.onload = () => {
-        URL.revokeObjectURL(url);
-        // Send confirmation to iOS sender that the image is now visible on TV
-        try {
-          context.sendCustomMessage(NAMESPACE, undefined, { type: 'IMAGE_DISPLAYED' });
-        } catch (e) { /* sender may not be connected */ }
-      };
+      imageViewer.onload = () => URL.revokeObjectURL(url);
       imageViewer.src = url;
       splash.classList.add('hidden');
       videoPlayer.style.display = 'none';
@@ -467,262 +264,99 @@
       statusText.textContent = 'Showing Image';
     }
 
-    // ── Orientation helpers ───────────────────────────────────────────
-    // Portrait: object-fit:contain shows the narrow portrait stream centred on TV.
-    // Landscape: switch to object-fit:fill so the wider stream fills 100% of TV width.
-    // The CSS transition on #mjpeg-viewer makes the switch smooth in both directions.
-    function applyOrientation(orientation) {
-      if (orientation === 'landscape') {
-        mjpegViewer.classList.add('landscape-mode');
-        console.log('[RECEIVER] Orientation → landscape (full-width)');
-      } else {
-        mjpegViewer.classList.remove('landscape-mode');
-        console.log('[RECEIVER] Orientation → portrait (centred narrow)');
-      }
-    }
-
-    // ── MJPEG mirroring ───────────────────────────────────────────────
-    var isMirroringActive = false;
-    var mjpegErrorTimer = null;
-    var mjpegRetryTimer = null;
-    var mjpegRetryCount = 0;
-    var currentMjpegUrl = '';
-    const MAX_MJPEG_RETRIES = 3; // retries before exiting to TV home
-
-    // Stream stall watchdog: periodically probes the MJPEG server to detect
-    // when the broadcast extension has been killed (user stopped broadcast
-    // outside the app, phone locked, etc.). The <img> onerror may NOT fire
-    // reliably when the server-side TCP connection is closed on a
-    // multipart/x-mixed-replace stream. This watchdog is the safety net.
-    var stallWatchdogTimer = null;
-    var consecutiveProbeFailures = 0;
-    const STALL_PROBE_INTERVAL = 10000; // Check every 10 seconds
-    const MAX_PROBE_FAILURES = 2;       // 2 consecutive failures (~20s) = dead
-
-    function startStallWatchdog() {
-      stopStallWatchdog();
-      consecutiveProbeFailures = 0;
-      stallWatchdogTimer = setInterval(() => {
-        if (!isMirroringActive || !currentMjpegUrl) {
-          stopStallWatchdog();
-          return;
-        }
-        // Build a probe URL from the MJPEG origin. We use mode:'no-cors' so
-        // even opaque 200/404 responses count as "server alive". Only a true
-        // network error (connection refused) increments the failure counter.
-        var probeUrl;
-        try {
-          var u = new URL(currentMjpegUrl);
-          probeUrl = u.origin + '/?_probe=' + Date.now();
-        } catch (e) {
-          return; // malformed URL, skip this cycle
-        }
-        var ctrl = new AbortController();
-        var to = setTimeout(() => ctrl.abort(), 5000);
-        fetch(probeUrl, { signal: ctrl.signal, mode: 'no-cors' })
-          .then(() => { clearTimeout(to); consecutiveProbeFailures = 0; })
-          .catch(() => {
-            clearTimeout(to);
-            consecutiveProbeFailures++;
-            console.log('[RECEIVER] Stall watchdog probe failed (' +
-              consecutiveProbeFailures + '/' + MAX_PROBE_FAILURES + ')');
-            if (consecutiveProbeFailures >= MAX_PROBE_FAILURES) {
-              console.log('[RECEIVER] MJPEG server unreachable — returning to splash');
-              stopMirroring();
-            }
-          });
-      }, STALL_PROBE_INTERVAL);
-    }
-
-    function stopStallWatchdog() {
-      if (stallWatchdogTimer) { clearInterval(stallWatchdogTimer); stallWatchdogTimer = null; }
-      consecutiveProbeFailures = 0;
-    }
+    // =============================================
+    // MJPEG STREAM MIRRORING (LOW LATENCY)
+    // =============================================
 
     function startMirroring(url) {
       cleanupMirroringConnection();
       cleanupImageCastingWS();
-      videoPlayer.style.display = 'none';
-      stopAllMedia();
 
+      // Hide other elements
+      videoPlayer.style.display = 'none';
+      stopImageCasting();
+      stopMediaCasting();
+
+      // Show MJPEG viewer
       mjpegViewer.classList.remove('hidden');
       mjpegViewer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
-      isMirroringActive = true;
-      currentMjpegUrl = url;
-      mjpegRetryCount = 0;
 
-      setupMjpegHandlers(url);
-      mjpegViewer.src = url;
-
-      // Start stall watchdog to detect dead MJPEG server when onerror doesn't fire
-      startStallWatchdog();
-    }
-
-    function setupMjpegHandlers(url) {
+      // Set MJPEG stream URL directly on img src
+      // The browser natively handles multipart/x-mixed-replace for continuous updates
       mjpegViewer.onerror = () => {
-        if (!isMirroringActive) return;
-        console.log('[RECEIVER] MJPEG error - will retry (attempt ' + (mjpegRetryCount + 1) + ')');
-        // Instead of stopping, schedule a retry to reconnect to the MJPEG stream
-        if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
-        mjpegErrorTimer = setTimeout(() => {
-          if (isMirroringActive) {
-            retryMjpegConnection();
-          }
-        }, 2000); // Wait 2s before first retry attempt
+        statusText.textContent = 'Connection Error';
       };
       mjpegViewer.onload = () => {
-        if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
-        if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
-        mjpegRetryCount = 0; // Reset retry counter on successful load
         statusText.textContent = 'Mirroring Screen';
       };
-    }
-
-    function retryMjpegConnection() {
-      if (!isMirroringActive || !currentMjpegUrl) return;
-      mjpegRetryCount++;
-
-      if (mjpegRetryCount > MAX_MJPEG_RETRIES) {
-        console.log('[RECEIVER] MJPEG max retries exhausted - stopping');
-        stopMirroring();
-        return;
-      }
-
-      // Exponential backoff: 2s, 3s, 4s, 5s, then cap at 5s
-      var delay = Math.min(5000, 2000 + (mjpegRetryCount * 1000));
-      console.log('[RECEIVER] MJPEG retry #' + mjpegRetryCount + ' in ' + delay + 'ms');
-      statusText.textContent = 'Reconnecting...';
-
-      mjpegRetryTimer = setTimeout(() => {
-        if (!isMirroringActive) return;
-        // Add cache-buster to force fresh connection
-        var sep = currentMjpegUrl.indexOf('?') >= 0 ? '&' : '?';
-        var retryUrl = currentMjpegUrl + sep + '_r=' + Date.now();
-        console.log('[RECEIVER] MJPEG reconnecting to: ' + retryUrl);
-        setupMjpegHandlers(retryUrl);
-        mjpegViewer.src = retryUrl;
-      }, delay);
+      mjpegViewer.src = url;
     }
 
     function cleanupMirroringConnection() {
-      isMirroringActive = false;
-      currentMjpegUrl = '';
-      mjpegRetryCount = 0;
-      if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
-      if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
-      stopStallWatchdog();
-      mjpegViewer.onerror = null;
-      mjpegViewer.onload = null;
+      // Stop MJPEG stream by clearing the img src
       mjpegViewer.src = '';
       mjpegViewer.classList.add('hidden');
       mjpegViewer.style.display = 'none';
     }
 
     function stopMirroring() {
-      // Reset orientation so next session starts in portrait by default
-      applyOrientation('portrait');
       cleanupMirroringConnection();
       cleanupImageCastingWS();
-      stopAllMedia();
+      stopMediaCasting();
+      stopImageCasting();
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       statusText.textContent = 'Ready to receive';
-      // Stay on the receiver splash — do NOT call context.stop().
-      // The Cast session stays alive so the user can cast something else
-      // without reconnecting.
     }
 
-    // ── WebSocket image casting ───────────────────────────────────────
+    // =============================================
+    // WEBSOCKET IMAGE CASTING (for CAST_IMAGE_WS)
+    // =============================================
+
     let ws = null;
 
     function startImageCastingWS(url) {
       cleanupImageCastingWS();
+
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
-      ws.onopen = () => { statusText.textContent = 'Image Casting Active'; };
+
+      ws.onopen = () => {
+        statusText.textContent = 'Image Casting Active';
+      };
+
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
+        // JPEG image check
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
         }
       };
+
       ws.onerror = () => statusText.textContent = 'Connection Error';
       ws.onclose = () => statusText.textContent = 'Disconnected';
     }
 
     function cleanupImageCastingWS() {
-      if (ws) { ws.onclose = null; ws.close(); ws = null; }
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+        ws = null;
+      }
     }
 
     function stopImageCasting() {
       imageViewer.classList.add('hidden');
       imageViewer.style.display = 'none';
-      imageViewer.src = '';
+      imageViewer.src = "";
     }
-
-    // ── Return to splash (home screen) ────────────────────────────────
-    function returnToSplash() {
-      stopAllMedia();
-      stopImageCasting();
-      cleanupMirroringConnection();
-      cleanupImageCastingWS();
-      videoPlayer.style.display = 'none';
-      splash.classList.remove('hidden');
-      connectionMessage.textContent = 'Waiting for connection...';
-      statusText.textContent = 'Ready to receive';
-      statusDot.classList.remove('connected');
-    }
-
-    // ── Sender disconnect handler ─────────────────────────────────────
-
-    // Helper: true if a video or audio is loaded in the media player
-    function isMediaActive() {
-      return mediaPlayer.src && mediaPlayer.src !== '' && !mediaPlayer.classList.contains('hidden');
-    }
-
-    // Helper: true if an image is currently displayed on screen
-    function isImageActive() {
-      return !imageViewer.classList.contains('hidden') && imageViewer.src && imageViewer.src !== '';
-    }
-
-    context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (event) => {
-      const mediaActive = isMediaActive();
-      const imageActive = isImageActive();
-      console.log('[RECEIVER] Sender disconnected. Mirroring: ' + isMirroringActive +
-        ', Media: ' + mediaActive + ', Image: ' + imageActive);
-      if (context.getSenders().length === 0) {
-        if (mediaActive || imageActive) {
-          // Video, audio, or image is actively being cast on the TV.
-          // The Chromecast plays media via its own HTTP fetch — it does NOT need
-          // the sender app to stay connected. Do NOT stop playback or close the
-          // receiver. The user backgrounded the iOS app; media continues on TV.
-          console.log('[RECEIVER] Sender gone but media/image active — keeping playback alive');
-        } else if (isMirroringActive) {
-          // Mirroring is active — the MJPEG stream is served by the broadcast
-          // extension on its own port (8088), completely independent of the Cast
-          // SDK sender connection. The sender disconnects when the app is
-          // backgrounded, but the extension keeps streaming frames.
-          //
-          // However, if the user actually stopped the broadcast, the MJPEG stream
-          // will die shortly. Reduce retry patience so we detect it fast.
-          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience');
-          mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
-        } else {
-          // Nothing active — return to splash and wait for next cast command.
-          // Do NOT call context.stop() — keep the receiver alive so the user
-          // can cast something else without reconnecting.
-          console.log('[RECEIVER] Sender gone, nothing active — returning to splash');
-          returnToSplash();
-        }
-      }
-    });
 
     // Start Cast Receiver
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.maxInactivity = 86400;
+    options.maxInactivity = 86400;  // 24 hours - prevent auto-disconnect during long sessions
     context.start(options);
   </script>
 </body>
