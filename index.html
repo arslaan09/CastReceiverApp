@@ -131,7 +131,6 @@
     .hidden {
       display: none !important;
     }
-
   </style>
 </head>
 
@@ -435,7 +434,6 @@
     var currentMjpegUrl = '';
     const MAX_MJPEG_RETRIES = 3; // retries before exiting to TV home
 
-
     // Stream stall watchdog: periodically probes the MJPEG server to detect
     // when the broadcast extension has been killed (user stopped broadcast
     // outside the app, phone locked, etc.). The <img> onerror may NOT fire
@@ -522,7 +520,7 @@
       mjpegViewer.onload = () => {
         if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
         if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
-        mjpegRetryCount = 0;
+        mjpegRetryCount = 0; // Reset retry counter on successful load
         statusText.textContent = 'Mirroring Screen';
       };
     }
