@@ -132,11 +132,19 @@
       display: none !important;
     }
 
-    /* Landscape mode: fill the entire TV screen when mirroring landscape frames */
+    /* Landscape mode: rotate the portrait MJPEG frame -90° to fill the TV screen.
+       The extension always sends portrait frames (since the app is portrait-locked).
+       When the device is held in landscape, we rotate the image -90° (CCW) and
+       swap the element dimensions so the rotated portrait content fills the TV. */
     #mjpeg-viewer.landscape-mode {
-      object-fit: fill !important;
-      width: 100% !important;
-      height: 100% !important;
+      /* Swap width/height: element becomes portrait-shaped (screen-height × screen-width) */
+      width: 100vh !important;
+      height: 100vw !important;
+      /* Center in viewport, then rotate */
+      top: 50% !important;
+      left: 50% !important;
+      transform: translate(-50%, -50%) rotate(-90deg) !important;
+      object-fit: contain !important;
     }
   </style>
 </head>
@@ -255,7 +263,19 @@
 
       if (data.type === 'START_MIRRORING') {
         stopAllMedia();
-        if (data.streamUrl) startMirroring(data.streamUrl);
+        if (data.streamUrl) {
+          // Apply initial orientation from the START_MIRRORING message
+          var initOrientation = data.orientation || 'portrait';
+          applyMirroringOrientation(initOrientation);
+          startMirroring(data.streamUrl);
+        }
+      }
+
+      if (data.type === 'ORIENTATION_CHANGED') {
+        if (isMirroringActive && data.orientation) {
+          console.log('[RECEIVER] Orientation changed to: ' + data.orientation);
+          applyMirroringOrientation(data.orientation);
+        }
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
@@ -441,50 +461,25 @@
     var currentMjpegUrl = '';
     const MAX_MJPEG_RETRIES = 3; // retries before exiting to TV home
 
-    // Orientation detection for landscape/portrait mode switching on the MJPEG viewer.
-    // When the extension sends landscape frames (width > height), we switch to full-screen mode.
-    var lastDetectedOrientation = 'unknown'; // 'portrait' | 'landscape' | 'unknown'
-    var orientationCheckInterval = null;
+    // Orientation state for landscape/portrait mode switching.
+    // Orientation is received from the iOS app via Cast messages (ORIENTATION_CHANGED)
+    // rather than detected from frame dimensions, because the extension now always
+    // sends portrait frames (app is portrait-locked).
+    var currentMirrorOrientation = 'portrait';
 
-    /// Checks the current MJPEG frame dimensions and applies landscape/portrait mode accordingly.
-    /// Called on onload (first frame) and periodically to catch orientation changes mid-stream.
-    function detectAndApplyOrientation() {
-      var w = mjpegViewer.naturalWidth;
-      var h = mjpegViewer.naturalHeight;
-      if (!w || !h || w === 0 || h === 0) return;
-
-      var orientation = (w > h) ? 'landscape' : 'portrait';
-      if (orientation === lastDetectedOrientation) return; // no change
-
-      lastDetectedOrientation = orientation;
-      console.log('[RECEIVER] MJPEG orientation detected: ' + orientation + ' (' + w + 'x' + h + ')');
+    /// Applies landscape or portrait CSS to the MJPEG viewer.
+    /// Landscape: rotates the portrait image -90° and fills the TV screen.
+    /// Portrait: shows the image normally (narrow, centered with object-fit: contain).
+    function applyMirroringOrientation(orientation) {
+      if (orientation === currentMirrorOrientation) return;
+      currentMirrorOrientation = orientation;
+      console.log('[RECEIVER] Applying mirroring orientation: ' + orientation);
 
       if (orientation === 'landscape') {
         mjpegViewer.classList.add('landscape-mode');
       } else {
         mjpegViewer.classList.remove('landscape-mode');
       }
-    }
-
-    function startOrientationPolling() {
-      stopOrientationPolling();
-      // Check every 2 seconds — the VTCompressionSession rebuild on orientation
-      // change produces frames with new dimensions, so this catches mid-stream changes.
-      orientationCheckInterval = setInterval(function () {
-        if (!isMirroringActive) {
-          stopOrientationPolling();
-          return;
-        }
-        detectAndApplyOrientation();
-      }, 2000);
-    }
-
-    function stopOrientationPolling() {
-      if (orientationCheckInterval) {
-        clearInterval(orientationCheckInterval);
-        orientationCheckInterval = null;
-      }
-      lastDetectedOrientation = 'unknown';
     }
 
     // Stream stall watchdog: periodically probes the MJPEG server to detect
@@ -556,9 +551,6 @@
 
       // Start stall watchdog to detect dead MJPEG server when onerror doesn't fire
       startStallWatchdog();
-
-      // Start polling for orientation changes (landscape ↔ portrait) mid-stream
-      startOrientationPolling();
     }
 
     function setupMjpegHandlers(url) {
@@ -578,8 +570,6 @@
         if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
         mjpegRetryCount = 0; // Reset retry counter on successful load
         statusText.textContent = 'Mirroring Screen';
-        // Detect landscape/portrait from the first frame's dimensions
-        detectAndApplyOrientation();
       };
     }
 
@@ -613,10 +603,10 @@
       isMirroringActive = false;
       currentMjpegUrl = '';
       mjpegRetryCount = 0;
+      currentMirrorOrientation = 'portrait';
       if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
       if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
       stopStallWatchdog();
-      stopOrientationPolling();
       mjpegViewer.onerror = null;
       mjpegViewer.onload = null;
       mjpegViewer.src = '';
