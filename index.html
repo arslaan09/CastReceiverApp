@@ -132,19 +132,9 @@
       display: none !important;
     }
 
-    /* Landscape mode: rotate the portrait MJPEG frame -90° to fill the TV screen.
-       The extension always sends portrait frames (since the app is portrait-locked).
-       When the device is held in landscape, we rotate the image -90° (CCW) and
-       swap the element dimensions so the rotated portrait content fills the TV. */
+    /* When the extension sends landscape frames, fill the entire TV screen */
     #mjpeg-viewer.landscape-mode {
-      /* Swap width/height: element becomes portrait-shaped (screen-height × screen-width) */
-      width: 100vh !important;
-      height: 100vw !important;
-      /* Center in viewport, then rotate */
-      top: 50% !important;
-      left: 50% !important;
-      transform: translate(-50%, -50%) rotate(-90deg) !important;
-      object-fit: contain !important;
+      object-fit: fill !important;
     }
   </style>
 </head>
@@ -263,19 +253,7 @@
 
       if (data.type === 'START_MIRRORING') {
         stopAllMedia();
-        if (data.streamUrl) {
-          // Apply initial orientation from the START_MIRRORING message
-          var initOrientation = data.orientation || 'portrait';
-          applyMirroringOrientation(initOrientation);
-          startMirroring(data.streamUrl);
-        }
-      }
-
-      if (data.type === 'ORIENTATION_CHANGED') {
-        if (isMirroringActive && data.orientation) {
-          console.log('[RECEIVER] Orientation changed to: ' + data.orientation);
-          applyMirroringOrientation(data.orientation);
-        }
+        if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
@@ -461,25 +439,37 @@
     var currentMjpegUrl = '';
     const MAX_MJPEG_RETRIES = 3; // retries before exiting to TV home
 
-    // Orientation state for landscape/portrait mode switching.
-    // Orientation is received from the iOS app via Cast messages (ORIENTATION_CHANGED)
-    // rather than detected from frame dimensions, because the extension now always
-    // sends portrait frames (app is portrait-locked).
-    var currentMirrorOrientation = 'portrait';
+    // Landscape detection: poll the MJPEG frame dimensions to detect when
+    // the extension starts sending landscape frames (device rotated).
+    var lastDetectedOrientation = 'unknown';
+    var orientationPollTimer = null;
 
-    /// Applies landscape or portrait CSS to the MJPEG viewer.
-    /// Landscape: rotates the portrait image -90° and fills the TV screen.
-    /// Portrait: shows the image normally (narrow, centered with object-fit: contain).
-    function applyMirroringOrientation(orientation) {
-      if (orientation === currentMirrorOrientation) return;
-      currentMirrorOrientation = orientation;
-      console.log('[RECEIVER] Applying mirroring orientation: ' + orientation);
-
-      if (orientation === 'landscape') {
+    function checkFrameOrientation() {
+      var w = mjpegViewer.naturalWidth;
+      var h = mjpegViewer.naturalHeight;
+      if (!w || !h) return;
+      var orient = (w > h) ? 'landscape' : 'portrait';
+      if (orient === lastDetectedOrientation) return;
+      lastDetectedOrientation = orient;
+      console.log('[RECEIVER] Frame orientation: ' + orient + ' (' + w + 'x' + h + ')');
+      if (orient === 'landscape') {
         mjpegViewer.classList.add('landscape-mode');
       } else {
         mjpegViewer.classList.remove('landscape-mode');
       }
+    }
+
+    function startOrientationPoll() {
+      stopOrientationPoll();
+      orientationPollTimer = setInterval(function() {
+        if (!isMirroringActive) { stopOrientationPoll(); return; }
+        checkFrameOrientation();
+      }, 2000);
+    }
+
+    function stopOrientationPoll() {
+      if (orientationPollTimer) { clearInterval(orientationPollTimer); orientationPollTimer = null; }
+      lastDetectedOrientation = 'unknown';
     }
 
     // Stream stall watchdog: periodically probes the MJPEG server to detect
@@ -551,6 +541,7 @@
 
       // Start stall watchdog to detect dead MJPEG server when onerror doesn't fire
       startStallWatchdog();
+      startOrientationPoll();
     }
 
     function setupMjpegHandlers(url) {
@@ -568,8 +559,9 @@
       mjpegViewer.onload = () => {
         if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
         if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
-        mjpegRetryCount = 0; // Reset retry counter on successful load
+        mjpegRetryCount = 0;
         statusText.textContent = 'Mirroring Screen';
+        checkFrameOrientation();
       };
     }
 
@@ -603,10 +595,10 @@
       isMirroringActive = false;
       currentMjpegUrl = '';
       mjpegRetryCount = 0;
-      currentMirrorOrientation = 'portrait';
       if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
       if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
       stopStallWatchdog();
+      stopOrientationPoll();
       mjpegViewer.onerror = null;
       mjpegViewer.onload = null;
       mjpegViewer.src = '';
