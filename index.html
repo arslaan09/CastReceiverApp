@@ -364,6 +364,13 @@
     // Flag to track if we're playing audio (for overlay display)
     var isAudioMode = false;
 
+    // ── Connection state tracking ─────────────────────────────────────
+    // Remembers whether a sender (iOS app) is actively connected so
+    // returnToSplash() can show the correct status instead of always
+    // reverting to "Waiting for connection...".
+    var senderConnected = false;
+    var connectedDeviceName = '';
+
     // ── Status reporting ──────────────────────────────────────────────
     // Send playback state back to the iOS sender so it can sync the local player.
     let statusInterval = null;
@@ -462,8 +469,10 @@
       console.log('[RECEIVER] Got message type=' + (data.type || '?'));
 
       if (data.type === 'CONNECTION_ESTABLISHED') {
-        connectionMessage.textContent = 'Connected to ' + (data.deviceName || 'iOS Device');
-        statusText.textContent = 'Connection established';
+        senderConnected = true;
+        connectedDeviceName = data.deviceName || 'iOS Device';
+        connectionMessage.textContent = 'Connected to ' + connectedDeviceName;
+        statusText.textContent = 'Connected — Ready to cast';
         statusDot.classList.add('connected');
       }
 
@@ -817,7 +826,16 @@
       stopAllMedia();
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
-      statusText.textContent = 'Ready to receive';
+      // Show connection-aware status
+      if (senderConnected) {
+        connectionMessage.textContent = 'Connected to ' + connectedDeviceName;
+        statusText.textContent = 'Connected — Ready to cast';
+        statusDot.classList.add('connected');
+      } else {
+        connectionMessage.textContent = 'Waiting for connection...';
+        statusText.textContent = 'Ready to receive';
+        statusDot.classList.remove('connected');
+      }
       // Stay on the receiver splash — do NOT call context.stop().
       // The Cast session stays alive so the user can cast something else
       // without reconnecting.
@@ -860,9 +878,21 @@
       hideAudioOverlay();
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
-      connectionMessage.textContent = 'Waiting for connection...';
-      statusText.textContent = 'Ready to receive';
-      statusDot.classList.remove('connected');
+
+      // Show connection-aware status:
+      // If a sender is still connected, show "Connected — Ready to cast"
+      // instead of "Waiting for connection..." which confuses the user.
+      if (senderConnected && context.getSenders().length > 0) {
+        connectionMessage.textContent = 'Connected to ' + connectedDeviceName;
+        statusText.textContent = 'Connected — Ready to cast';
+        statusDot.classList.add('connected');
+      } else {
+        senderConnected = false;
+        connectedDeviceName = '';
+        connectionMessage.textContent = 'Waiting for connection...';
+        statusText.textContent = 'Ready to receive';
+        statusDot.classList.remove('connected');
+      }
     }
 
     // ── Sender disconnect handler ─────────────────────────────────────
@@ -904,6 +934,8 @@
           // Do NOT call context.stop() — keep the receiver alive so the user
           // can cast something else without reconnecting.
           console.log('[RECEIVER] Sender gone, nothing active — returning to splash');
+          senderConnected = false;
+          connectedDeviceName = '';
           returnToSplash();
         }
       }
