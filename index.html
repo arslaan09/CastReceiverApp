@@ -479,10 +479,20 @@
       if (data.type === 'START_MIRRORING') {
         stopAllMedia();
         hideAudioOverlay();
+        stopMirrorAudio();  // stop any previous audio stream
         if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
+
+      // Live app-audio stream (game/movie system audio from the iOS device)
+      if (data.type === 'START_AUDIO_STREAM') {
+        if (data.audioUrl) startMirrorAudio(data.audioUrl);
+      }
+
+      if (data.type === 'STOP_AUDIO_STREAM') {
+        stopMirrorAudio();
+      }
 
       // STOP_CASTING: user left the video/audio/image player screen.
       // Stop playback and return to splash — but keep the receiver alive
@@ -547,6 +557,44 @@
       audioOverlay.style.display = 'none';
       isAudioMode = false;
       console.log('[RECEIVER] Audio overlay hidden');
+    }
+
+    // ── Mirror App-Audio Streaming helpers ───────────────────────────
+    // A hidden <audio> element is created on demand when the iOS app enables
+    // audio mirroring. It streams raw PCM via the /audio-stream WAV endpoint.
+    // It is separate from the video <img> MJPEG stream, so it never interrupts
+    // video when toggled on or off.
+    var _mirrorAudioEl = null;
+
+    function startMirrorAudio(url) {
+      stopMirrorAudio(); // tear down any existing audio element first
+      console.log('[RECEIVER] Starting mirror audio from: ' + url);
+      var audio = document.createElement('audio');
+      audio.id = 'mirror-audio';
+      audio.autoplay = true;
+      audio.style.display = 'none';
+      audio.src = url + '?t=' + Date.now(); // cache-bust
+      audio.onerror = function(e) {
+        console.warn('[RECEIVER] Mirror audio error:', e);
+      };
+      audio.onplay = function() {
+        console.log('[RECEIVER] Mirror audio playing');
+      };
+      document.body.appendChild(audio);
+      _mirrorAudioEl = audio;
+      audio.play().catch(function(e) {
+        console.warn('[RECEIVER] Mirror audio play() rejected:', e);
+      });
+    }
+
+    function stopMirrorAudio() {
+      if (_mirrorAudioEl) {
+        _mirrorAudioEl.pause();
+        _mirrorAudioEl.src = '';
+        try { document.body.removeChild(_mirrorAudioEl); } catch(e) {}
+        _mirrorAudioEl = null;
+        console.log('[RECEIVER] Mirror audio stopped');
+      }
     }
 
     // ── Media playback ────────────────────────────────────────────────
@@ -824,6 +872,7 @@
       cleanupMirroringConnection();
       cleanupImageCastingWS();
       stopAllMedia();
+      stopMirrorAudio();  // stop live app-audio stream
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
       // Show connection-aware status
@@ -872,6 +921,7 @@
     // ── Return to splash (home screen) ────────────────────────────────
     function returnToSplash() {
       stopAllMedia();
+      stopMirrorAudio();  // stop live app-audio stream
       stopImageCasting();
       cleanupMirroringConnection();
       cleanupImageCastingWS();
