@@ -559,42 +559,184 @@
       console.log('[RECEIVER] Audio overlay hidden');
     }
 
-    // ── Mirror App-Audio Streaming helpers ───────────────────────────
-    // A hidden <audio> element is created on demand when the iOS app enables
-    // audio mirroring. It streams raw PCM via the /audio-stream WAV endpoint.
-    // It is separate from the video <img> MJPEG stream, so it never interrupts
-    // video when toggled on or off.
-    var _mirrorAudioEl = null;
+    // ── Mirror App-Audio Streaming (Web Audio API) ─────────────────
+    // Uses fetch + ReadableStream to pull raw PCM from the /audio-stream
+    // WAV endpoint, then feeds it into Web Audio API via ScriptProcessorNode
+    // for low-latency playback during screen mirroring.
+    var _audioCtx = null;
+    var _audioAbort = null;
+    var _audioScriptNode = null;
+    var _pcmQueue = [];       // queue of {data: Int16Array, offset: 0}
+    var _audioChannels = 2;
+    var _audioRetryTimer = null;
+    var _audioRetryCount = 0;
+    var _currentAudioUrl = '';
+    var MAX_AUDIO_RETRIES = 5;
 
     function startMirrorAudio(url) {
-      stopMirrorAudio(); // tear down any existing audio element first
-      console.log('[RECEIVER] Starting mirror audio from: ' + url);
-      var audio = document.createElement('audio');
-      audio.id = 'mirror-audio';
-      audio.autoplay = true;
-      audio.style.display = 'none';
-      audio.src = url + '?t=' + Date.now(); // cache-bust
-      audio.onerror = function(e) {
-        console.warn('[RECEIVER] Mirror audio error:', e);
+      stopMirrorAudio();
+      _currentAudioUrl = url;
+      _audioRetryCount = 0;
+      console.log('[RECEIVER] Starting mirror audio (Web Audio API) from: ' + url);
+      attemptAudioConnection(url);
+    }
+
+    function attemptAudioConnection(url) {
+      if (_audioAbort) { _audioAbort.abort(); }
+      _audioAbort = new AbortController();
+
+      var fetchUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+      fetch(fetchUrl, { signal: _audioAbort.signal })
+        .then(function(response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          if (!response.body) throw new Error('ReadableStream not supported');
+          console.log('[RECEIVER] Audio stream connected');
+          _audioRetryCount = 0;
+          var reader = response.body.getReader();
+          processAudioStream(reader);
+        })
+        .catch(function(err) {
+          if (err.name === 'AbortError') return;
+          console.warn('[RECEIVER] Audio fetch error: ' + err);
+          retryAudioConnection();
+        });
+    }
+
+    function retryAudioConnection() {
+      if (!_currentAudioUrl) return;
+      _audioRetryCount++;
+      if (_audioRetryCount > MAX_AUDIO_RETRIES) {
+        console.log('[RECEIVER] Audio max retries exhausted');
+        return;
+      }
+      var delay = Math.min(5000, 1000 * _audioRetryCount);
+      console.log('[RECEIVER] Audio retry #' + _audioRetryCount + ' in ' + delay + 'ms');
+      _audioRetryTimer = setTimeout(function() {
+        if (_currentAudioUrl) attemptAudioConnection(_currentAudioUrl);
+      }, delay);
+    }
+
+    function processAudioStream(reader) {
+      var headerBuf = new Uint8Array(0);
+      var wavParsed = false;
+      var sampleRate = 48000;
+
+      function pump() {
+        reader.read().then(function(result) {
+          if (result.done) {
+            console.log('[RECEIVER] Audio stream ended');
+            retryAudioConnection();
+            return;
+          }
+          var chunk = result.value;
+
+          if (!wavParsed) {
+            // Accumulate until we have the 44-byte WAV header
+            var merged = new Uint8Array(headerBuf.length + chunk.length);
+            merged.set(headerBuf);
+            merged.set(chunk, headerBuf.length);
+            headerBuf = merged;
+
+            if (headerBuf.length >= 44) {
+              var dv = new DataView(headerBuf.buffer);
+              _audioChannels = dv.getUint16(22, true);
+              sampleRate = dv.getUint32(24, true);
+              console.log('[RECEIVER] WAV header parsed: ' + sampleRate + 'Hz, ' + _audioChannels + 'ch');
+
+              initWebAudio(sampleRate);
+              wavParsed = true;
+
+              if (headerBuf.length > 44) {
+                enqueuePCM(headerBuf.slice(44));
+              }
+            }
+            pump();
+            return;
+          }
+
+          enqueuePCM(chunk);
+          pump();
+        }).catch(function(err) {
+          if (err.name === 'AbortError') return;
+          console.warn('[RECEIVER] Audio stream read error: ' + err);
+          retryAudioConnection();
+        });
+      }
+      pump();
+    }
+
+    function initWebAudio(sampleRate) {
+      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} }
+      if (_audioScriptNode) { _audioScriptNode.disconnect(); _audioScriptNode = null; }
+      _pcmQueue = [];
+
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
+
+      // 4096 frames buffer ~ 85ms at 48kHz — low enough latency for mirroring
+      _audioScriptNode = _audioCtx.createScriptProcessor(4096, 0, _audioChannels);
+      _audioScriptNode.onaudioprocess = function(e) {
+        var outBuf = e.outputBuffer;
+        var frames = outBuf.length;
+        var ch = outBuf.numberOfChannels;
+        var channels = [];
+        for (var c = 0; c < ch; c++) { channels.push(outBuf.getChannelData(c)); }
+
+        var filled = 0;
+        while (filled < frames && _pcmQueue.length > 0) {
+          var item = _pcmQueue[0];
+          var avail = Math.floor((item.data.length - item.offset) / ch);
+          var need = frames - filled;
+          var copy = Math.min(avail, need);
+
+          for (var i = 0; i < copy; i++) {
+            for (var c = 0; c < ch; c++) {
+              channels[c][filled + i] = item.data[item.offset + i * ch + c] / 32768.0;
+            }
+          }
+          item.offset += copy * ch;
+          filled += copy;
+
+          if (item.offset >= item.data.length) { _pcmQueue.shift(); }
+        }
+        // Fill remaining with silence
+        for (var i = filled; i < frames; i++) {
+          for (var c = 0; c < ch; c++) { channels[c][i] = 0; }
+        }
       };
-      audio.onplay = function() {
-        console.log('[RECEIVER] Mirror audio playing');
-      };
-      document.body.appendChild(audio);
-      _mirrorAudioEl = audio;
-      audio.play().catch(function(e) {
-        console.warn('[RECEIVER] Mirror audio play() rejected:', e);
-      });
+      _audioScriptNode.connect(_audioCtx.destination);
+      console.log('[RECEIVER] Web Audio initialized: ' + sampleRate + 'Hz, ' + _audioChannels + 'ch');
+    }
+
+    function enqueuePCM(uint8Chunk) {
+      // Convert Uint8Array to Int16Array (PCM 16-bit little-endian interleaved)
+      // Ensure even length for Int16 alignment
+      var len = uint8Chunk.length & ~1;
+      if (len === 0) return;
+      var aligned = uint8Chunk.slice(0, len);
+      var int16 = new Int16Array(aligned.buffer, aligned.byteOffset, len / 2);
+      _pcmQueue.push({ data: int16, offset: 0 });
+
+      // Prevent unbounded queue growth (cap at ~2 seconds of audio)
+      var maxSamples = (_audioCtx ? _audioCtx.sampleRate : 48000) * _audioChannels * 2;
+      var total = 0;
+      for (var i = 0; i < _pcmQueue.length; i++) {
+        total += _pcmQueue[i].data.length - _pcmQueue[i].offset;
+      }
+      while (total > maxSamples && _pcmQueue.length > 1) {
+        var dropped = _pcmQueue.shift();
+        total -= (dropped.data.length - dropped.offset);
+      }
     }
 
     function stopMirrorAudio() {
-      if (_mirrorAudioEl) {
-        _mirrorAudioEl.pause();
-        _mirrorAudioEl.src = '';
-        try { document.body.removeChild(_mirrorAudioEl); } catch(e) {}
-        _mirrorAudioEl = null;
-        console.log('[RECEIVER] Mirror audio stopped');
-      }
+      _currentAudioUrl = '';
+      if (_audioRetryTimer) { clearTimeout(_audioRetryTimer); _audioRetryTimer = null; }
+      if (_audioAbort) { _audioAbort.abort(); _audioAbort = null; }
+      if (_audioScriptNode) { _audioScriptNode.disconnect(); _audioScriptNode = null; }
+      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} _audioCtx = null; }
+      _pcmQueue = [];
+      _audioRetryCount = 0;
+      console.log('[RECEIVER] Mirror audio stopped');
     }
 
     // ── Media playback ────────────────────────────────────────────────
