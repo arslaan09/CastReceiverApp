@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <title>Screen Mirror Receiver</title>
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -131,157 +132,6 @@
     .hidden {
       display: none !important;
     }
-
-    /* ── Audio Playback Overlay ──────────────────────────────────── */
-    #audio-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-      display: none;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      z-index: 8;
-      color: white;
-    }
-
-    .audio-disc-container {
-      position: relative;
-      width: 280px;
-      height: 280px;
-      margin-bottom: 50px;
-    }
-
-    /* Outer glow ring */
-    .audio-disc-glow {
-      position: absolute;
-      top: -20px;
-      left: -20px;
-      width: 320px;
-      height: 320px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(102, 126, 234, 0.3) 0%, transparent 70%);
-      animation: glow-pulse 3s ease-in-out infinite;
-    }
-
-    @keyframes glow-pulse {
-      0%, 100% { transform: scale(1); opacity: 0.6; }
-      50% { transform: scale(1.15); opacity: 1; }
-    }
-
-    /* Vinyl disc */
-    .audio-disc {
-      position: relative;
-      width: 280px;
-      height: 280px;
-      border-radius: 50%;
-      background: 
-        radial-gradient(circle at center, #1a1a2e 15%, transparent 16%),
-        radial-gradient(circle at center, transparent 30%, rgba(255,255,255,0.03) 31%, transparent 32%),
-        radial-gradient(circle at center, transparent 45%, rgba(255,255,255,0.03) 46%, transparent 47%),
-        radial-gradient(circle at center, transparent 60%, rgba(255,255,255,0.03) 61%, transparent 62%),
-        radial-gradient(circle at center, transparent 75%, rgba(255,255,255,0.03) 76%, transparent 77%),
-        linear-gradient(135deg, #2d2d44 0%, #1a1a2e 100%);
-      box-shadow: 0 0 60px rgba(102, 126, 234, 0.2),
-                  inset 0 0 30px rgba(0, 0, 0, 0.5);
-      animation: spin-disc 8s linear infinite;
-    }
-
-    .audio-disc.paused {
-      animation-play-state: paused;
-    }
-
-    @keyframes spin-disc {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    /* Center label on disc */
-    .audio-disc-center {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 90px;
-      height: 90px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
-    }
-
-    .audio-disc-center svg {
-      width: 40px;
-      height: 40px;
-      fill: white;
-    }
-
-    /* Track info */
-    .audio-track-info {
-      text-align: center;
-      margin-bottom: 40px;
-    }
-
-    .audio-now-playing {
-      font-size: 18px;
-      text-transform: uppercase;
-      letter-spacing: 4px;
-      color: rgba(255, 255, 255, 0.5);
-      margin-bottom: 12px;
-    }
-
-    .audio-track-title {
-      font-size: 28px;
-      font-weight: 600;
-      color: white;
-      max-width: 600px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    /* Equalizer bars */
-    .audio-equalizer {
-      display: flex;
-      align-items: flex-end;
-      gap: 6px;
-      height: 50px;
-    }
-
-    .eq-bar {
-      width: 8px;
-      background: linear-gradient(to top, #667eea, #764ba2);
-      border-radius: 4px;
-      animation: eq-bounce 1.2s ease-in-out infinite;
-    }
-
-    .eq-bar.paused {
-      animation-play-state: paused;
-      height: 8px !important;
-    }
-
-    .eq-bar:nth-child(1) { animation-delay: 0s; }
-    .eq-bar:nth-child(2) { animation-delay: 0.15s; }
-    .eq-bar:nth-child(3) { animation-delay: 0.3s; }
-    .eq-bar:nth-child(4) { animation-delay: 0.45s; }
-    .eq-bar:nth-child(5) { animation-delay: 0.6s; }
-    .eq-bar:nth-child(6) { animation-delay: 0.75s; }
-    .eq-bar:nth-child(7) { animation-delay: 0.9s; }
-    .eq-bar:nth-child(8) { animation-delay: 0.2s; }
-    .eq-bar:nth-child(9) { animation-delay: 0.5s; }
-
-    @keyframes eq-bounce {
-      0%, 100% { height: 8px; }
-      25% { height: 35px; }
-      50% { height: 18px; }
-      75% { height: 45px; }
-    }
-
   </style>
 </head>
 
@@ -301,39 +151,8 @@
     </div>
   </div>
 
-  <!-- Audio Playback Overlay -->
-  <div id="audio-overlay">
-    <div class="audio-disc-container">
-      <div class="audio-disc-glow"></div>
-      <div class="audio-disc" id="audioDisc">
-        <div class="audio-disc-center">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-          </svg>
-        </div>
-      </div>
-    </div>
-    <div class="audio-track-info">
-      <div class="audio-now-playing">Now Playing</div>
-      <div class="audio-track-title" id="audioTrackTitle">Music</div>
-    </div>
-    <div class="audio-equalizer" id="audioEqualizer">
-      <div class="eq-bar"></div>
-      <div class="eq-bar"></div>
-      <div class="eq-bar"></div>
-      <div class="eq-bar"></div>
-      <div class="eq-bar"></div>
-      <div class="eq-bar"></div>
-      <div class="eq-bar"></div>
-      <div class="eq-bar"></div>
-      <div class="eq-bar"></div>
-    </div>
-  </div>
-
   <video id="video-player" autoplay playsinline muted></video>
-  <img id="mjpeg-viewer" class="hidden"
-    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 5; background: black; will-change: contents; transform: translateZ(0); image-rendering: auto;">
-  <video id="media-player" class="hidden" playsinline preload="auto"
+  <video id="media-player" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 6; background: black;">
@@ -344,170 +163,42 @@
 
     const splash = document.getElementById('splash');
     const videoPlayer = document.getElementById('video-player');
-    const mjpegViewer = document.getElementById('mjpeg-viewer');
     const mediaPlayer = document.getElementById('media-player');
     const imageViewer = document.getElementById('image-viewer');
-    const castMediaPlayer = document.getElementById('cast-media-player');
     const connectionMessage = document.getElementById('connectionMessage');
     const statusText = document.getElementById('statusText');
     const statusDot = document.getElementById('statusDot');
-    const audioOverlay = document.getElementById('audio-overlay');
-    const audioDisc = document.getElementById('audioDisc');
-    const audioTrackTitle = document.getElementById('audioTrackTitle');
-    const audioEqualizer = document.getElementById('audioEqualizer');
 
     const NAMESPACE = 'urn:x-cast:com.tvmirror.screenmirror';
 
-    // Flag to suppress error handlers during intentional media stop
-    var mediaStopping = false;
+    let jmuxer = null;
+    let ws = null;
+    let liveEdgeInterval = null;
 
-    // Flag to track if we're playing audio (for overlay display)
-    var isAudioMode = false;
-
-    // ── Connection state tracking ─────────────────────────────────────
-    // Remembers whether a sender (iOS app) is actively connected so
-    // returnToSplash() can show the correct status instead of always
-    // reverting to "Waiting for connection...".
-    var senderConnected = false;
-    var connectedDeviceName = '';
-
-    // ── Status reporting ──────────────────────────────────────────────
-    // Send playback state back to the iOS sender so it can sync the local player.
-    let statusInterval = null;
-
-    function sendStatus(state) {
-      try {
-        const msg = {
-          type: 'MEDIA_STATUS',
-          state: state,
-          currentTime: mediaPlayer.currentTime || 0,
-          duration: (mediaPlayer.duration && isFinite(mediaPlayer.duration)) ? mediaPlayer.duration : 0
-        };
-        context.sendCustomMessage(NAMESPACE, undefined, msg);
-      } catch (e) { /* sender may not be connected yet */ }
-    }
-
-    function startStatusReporting() {
-      if (statusInterval) return;
-      // Report position every second while playing so iOS can drift-correct
-      statusInterval = setInterval(() => {
-        if (!mediaPlayer.paused && !mediaPlayer.ended) {
-          sendStatus('playing');
-        }
-      }, 1000);
-    }
-
-    function stopStatusReporting() {
-      if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
-    }
-
-    // Wire up media player events → send status to iOS
-    mediaPlayer.addEventListener('playing', () => {
-      sendStatus('playing');
-      startStatusReporting();
-      // Update audio overlay animation state
-      if (isAudioMode) {
-        audioDisc.classList.remove('paused');
-        setEqBarsPaused(false);
-      }
-    });
-    mediaPlayer.addEventListener('pause', () => {
-      if (!mediaStopping) {
-        stopStatusReporting();
-        sendStatus('paused');
-        // Update audio overlay animation state
-        if (isAudioMode) {
-          audioDisc.classList.add('paused');
-          setEqBarsPaused(true);
-        }
-      }
-    });
-    mediaPlayer.addEventListener('waiting', () => { if (!mediaStopping) sendStatus('buffering'); });
-    mediaPlayer.addEventListener('ended', () => {
-      stopStatusReporting();
-      sendStatus('ended');
-      // Stay on last frame — don't return to splash.
-      // The user can replay, go next, or stop from the mobile controls.
-      if (isAudioMode) {
-        audioDisc.classList.add('paused');
-        setEqBarsPaused(true);
-      }
-    });
-    mediaPlayer.addEventListener('error', () => {
-      // Ignore errors during intentional stop
-      if (mediaStopping) return;
-      stopStatusReporting();
-      sendStatus('idle');
-    });
-    // Unmute after first frame arrives (Chromecast may require muted autoplay first)
-    mediaPlayer.addEventListener('loadeddata', () => {
-      console.log('[RECEIVER] loadeddata — unmuting');
-      mediaPlayer.muted = false;
-    });
-    mediaPlayer.addEventListener('seeked', () => {
-      sendStatus(mediaPlayer.paused ? 'paused' : 'playing');
-    });
-
-    // Helper: set equalizer bars paused or playing
-    function setEqBarsPaused(paused) {
-      var bars = audioEqualizer.querySelectorAll('.eq-bar');
-      for (var i = 0; i < bars.length; i++) {
-        if (paused) {
-          bars[i].classList.add('paused');
-        } else {
-          bars[i].classList.remove('paused');
-        }
-      }
-    }
-
-    // ── Custom message handler ────────────────────────────────────────
+    // Handle custom messages from sender
     context.addCustomMessageListener(NAMESPACE, (event) => {
       let data = event.data;
       if (typeof data === 'string') {
         try { data = JSON.parse(data); } catch (e) { return; }
       }
-      console.log('[RECEIVER] Got message type=' + (data.type || '?'));
 
       if (data.type === 'CONNECTION_ESTABLISHED') {
-        senderConnected = true;
-        connectedDeviceName = data.deviceName || 'iOS Device';
-        connectionMessage.textContent = 'Connected to ' + connectedDeviceName;
-        statusText.textContent = 'Connected — Ready to cast';
+        connectionMessage.textContent = 'Connected to ' + (data.deviceName || 'iOS Device');
+        statusText.textContent = 'Connection established';
         statusDot.classList.add('connected');
       }
 
       if (data.type === 'START_MIRRORING') {
-        stopAllMedia();
-        hideAudioOverlay();
-        stopMirrorAudio();  // stop any previous audio stream
+        stopImageCasting();
         if (data.streamUrl) startMirroring(data.streamUrl);
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
 
-      // Live app-audio stream (game/movie system audio from the iOS device)
-      if (data.type === 'START_AUDIO_STREAM') {
-        if (data.audioUrl) startMirrorAudio(data.audioUrl);
-      }
-
-      if (data.type === 'STOP_AUDIO_STREAM') {
-        stopMirrorAudio();
-      }
-
-      // STOP_CASTING: user left the video/audio/image player screen.
-      // Stop playback and return to splash — but keep the receiver alive
-      // so the user can cast something else without reconnecting.
-      if (data.type === 'STOP_CASTING') {
-        console.log('[RECEIVER] STOP_CASTING received — returning to splash');
-        returnToSplash();
-      }
-
       if (data.type === 'CAST_IMAGE_WS') {
         cleanupMirroringConnection();
-        cleanupImageCastingWS();
         stopMediaCasting();
-        hideAudioOverlay();
-        startImageCastingWS(data.streamUrl);
+        startMirroring(data.streamUrl);
         videoPlayer.style.display = 'none';
         imageViewer.classList.remove('hidden');
         imageViewer.style.display = 'block';
@@ -516,352 +207,50 @@
 
       if (data.type === 'CAST_VIDEO') {
         cleanupMirroringConnection();
-        cleanupImageCastingWS();
         stopImageCasting();
-        hideAudioOverlay();
-        isAudioMode = false;
-        playMedia(data.videoUrl, data.autoplay !== false);  // default autoplay=true
-        statusText.textContent = 'Video Loading...';
+        playVideo(data.videoUrl);
       }
 
       if (data.type === 'CAST_AUDIO') {
         cleanupMirroringConnection();
-        cleanupImageCastingWS();
         stopImageCasting();
-        isAudioMode = true;
-        playMedia(data.audioUrl, data.autoplay !== false);
-        showAudioOverlay();
-        statusText.textContent = 'Audio Loading...';
+        playVideo(data.audioUrl);
+        statusText.textContent = 'Playing Audio';
       }
 
       if (data.type === 'MEDIA_CONTROL') handleMediaControl(data.command, data.value);
-
-      if (data.type === 'SET_VOLUME') {
-        const v = parseFloat(data.volume);
-        if (!isNaN(v)) mediaPlayer.volume = Math.max(0, Math.min(1, v));
-      }
     });
 
-    // ── Audio overlay helpers ─────────────────────────────────────────
-    function showAudioOverlay() {
-      audioOverlay.style.display = 'flex';
-      audioDisc.classList.remove('paused');
-      setEqBarsPaused(false);
-      // Try to extract a track name from the audio URL
-      // e.g. "http://...:8080/audio.mp3?t=123" → "Music"
-      audioTrackTitle.textContent = 'Music';
-      console.log('[RECEIVER] Audio overlay shown');
-    }
-
-    function hideAudioOverlay() {
-      audioOverlay.style.display = 'none';
-      isAudioMode = false;
-      console.log('[RECEIVER] Audio overlay hidden');
-    }
-
-    // ── Mirror App-Audio Streaming (Web Audio API) ─────────────────
-    // Uses fetch + ReadableStream to pull raw PCM from the /audio-stream
-    // WAV endpoint, then feeds it into Web Audio API via ScriptProcessorNode
-    // for low-latency playback during screen mirroring.
-    var _audioCtx = null;
-    var _audioAbort = null;
-    var _audioScriptNode = null;
-    var _pcmQueue = [];       // queue of {data: Int16Array, offset: 0}
-    var _audioChannels = 2;
-    var _audioRetryTimer = null;
-    var _audioRetryCount = 0;
-    var _currentAudioUrl = '';
-    var MAX_AUDIO_RETRIES = 5;
-
-    function startMirrorAudio(url) {
-      stopMirrorAudio();
-      _currentAudioUrl = url;
-      _audioRetryCount = 0;
-      console.log('[RECEIVER] Starting mirror audio (Web Audio API) from: ' + url);
-      attemptAudioConnection(url);
-    }
-
-    function attemptAudioConnection(url) {
-      if (_audioAbort) { _audioAbort.abort(); }
-      _audioAbort = new AbortController();
-
-      var fetchUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
-      fetch(fetchUrl, { signal: _audioAbort.signal })
-        .then(function(response) {
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          if (!response.body) throw new Error('ReadableStream not supported');
-          console.log('[RECEIVER] Audio stream connected');
-          _audioRetryCount = 0;
-          var reader = response.body.getReader();
-          processAudioStream(reader);
-        })
-        .catch(function(err) {
-          if (err.name === 'AbortError') return;
-          console.warn('[RECEIVER] Audio fetch error: ' + err);
-          retryAudioConnection();
-        });
-    }
-
-    function retryAudioConnection() {
-      if (!_currentAudioUrl) return;
-      _audioRetryCount++;
-      if (_audioRetryCount > MAX_AUDIO_RETRIES) {
-        console.log('[RECEIVER] Audio max retries exhausted');
-        return;
-      }
-      var delay = Math.min(5000, 1000 * _audioRetryCount);
-      console.log('[RECEIVER] Audio retry #' + _audioRetryCount + ' in ' + delay + 'ms');
-      _audioRetryTimer = setTimeout(function() {
-        if (_currentAudioUrl) attemptAudioConnection(_currentAudioUrl);
-      }, delay);
-    }
-
-    function processAudioStream(reader) {
-      var headerBuf = new Uint8Array(0);
-      var wavParsed = false;
-      var sampleRate = 48000;
-
-      function pump() {
-        reader.read().then(function(result) {
-          if (result.done) {
-            console.log('[RECEIVER] Audio stream ended');
-            retryAudioConnection();
-            return;
-          }
-          var chunk = result.value;
-
-          if (!wavParsed) {
-            // Accumulate until we have the 44-byte WAV header
-            var merged = new Uint8Array(headerBuf.length + chunk.length);
-            merged.set(headerBuf);
-            merged.set(chunk, headerBuf.length);
-            headerBuf = merged;
-
-            if (headerBuf.length >= 44) {
-              var dv = new DataView(headerBuf.buffer);
-              _audioChannels = dv.getUint16(22, true);
-              sampleRate = dv.getUint32(24, true);
-              console.log('[RECEIVER] WAV header parsed: ' + sampleRate + 'Hz, ' + _audioChannels + 'ch');
-
-              initWebAudio(sampleRate);
-              wavParsed = true;
-
-              if (headerBuf.length > 44) {
-                enqueuePCM(headerBuf.slice(44));
-              }
-            }
-            pump();
-            return;
-          }
-
-          enqueuePCM(chunk);
-          pump();
-        }).catch(function(err) {
-          if (err.name === 'AbortError') return;
-          console.warn('[RECEIVER] Audio stream read error: ' + err);
-          retryAudioConnection();
-        });
-      }
-      pump();
-    }
-
-    function initWebAudio(sampleRate) {
-      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} }
-      if (_audioScriptNode) { _audioScriptNode.disconnect(); _audioScriptNode = null; }
-      _pcmQueue = [];
-
-      _audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
-
-      // 4096 frames buffer ~ 85ms at 48kHz — low enough latency for mirroring
-      _audioScriptNode = _audioCtx.createScriptProcessor(4096, 0, _audioChannels);
-      _audioScriptNode.onaudioprocess = function(e) {
-        var outBuf = e.outputBuffer;
-        var frames = outBuf.length;
-        var ch = outBuf.numberOfChannels;
-        var channels = [];
-        for (var c = 0; c < ch; c++) { channels.push(outBuf.getChannelData(c)); }
-
-        var filled = 0;
-        while (filled < frames && _pcmQueue.length > 0) {
-          var item = _pcmQueue[0];
-          var avail = Math.floor((item.data.length - item.offset) / ch);
-          var need = frames - filled;
-          var copy = Math.min(avail, need);
-
-          for (var i = 0; i < copy; i++) {
-            for (var c = 0; c < ch; c++) {
-              channels[c][filled + i] = item.data[item.offset + i * ch + c] / 32768.0;
-            }
-          }
-          item.offset += copy * ch;
-          filled += copy;
-
-          if (item.offset >= item.data.length) { _pcmQueue.shift(); }
-        }
-        // Fill remaining with silence
-        for (var i = filled; i < frames; i++) {
-          for (var c = 0; c < ch; c++) { channels[c][i] = 0; }
-        }
-      };
-      _audioScriptNode.connect(_audioCtx.destination);
-      console.log('[RECEIVER] Web Audio initialized: ' + sampleRate + 'Hz, ' + _audioChannels + 'ch');
-    }
-
-    function enqueuePCM(uint8Chunk) {
-      // Convert Uint8Array to Int16Array (PCM 16-bit little-endian interleaved)
-      // Ensure even length for Int16 alignment
-      var len = uint8Chunk.length & ~1;
-      if (len === 0) return;
-      var aligned = uint8Chunk.slice(0, len);
-      var int16 = new Int16Array(aligned.buffer, aligned.byteOffset, len / 2);
-      _pcmQueue.push({ data: int16, offset: 0 });
-
-      // Prevent unbounded queue growth (cap at ~2 seconds of audio)
-      var maxSamples = (_audioCtx ? _audioCtx.sampleRate : 48000) * _audioChannels * 2;
-      var total = 0;
-      for (var i = 0; i < _pcmQueue.length; i++) {
-        total += _pcmQueue[i].data.length - _pcmQueue[i].offset;
-      }
-      while (total > maxSamples && _pcmQueue.length > 1) {
-        var dropped = _pcmQueue.shift();
-        total -= (dropped.data.length - dropped.offset);
-      }
-    }
-
-    function stopMirrorAudio() {
-      _currentAudioUrl = '';
-      if (_audioRetryTimer) { clearTimeout(_audioRetryTimer); _audioRetryTimer = null; }
-      if (_audioAbort) { _audioAbort.abort(); _audioAbort = null; }
-      if (_audioScriptNode) { _audioScriptNode.disconnect(); _audioScriptNode = null; }
-      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} _audioCtx = null; }
-      _pcmQueue = [];
-      _audioRetryCount = 0;
-      console.log('[RECEIVER] Mirror audio stopped');
-    }
-
-    // ── Media playback ────────────────────────────────────────────────
-    var mediaRetryCount = 0;
-    const MAX_MEDIA_RETRIES = 4;
-    let mediaRetryTimer = null;
-
-    function playMedia(url, autoplay) {
-      console.log('[RECEIVER] playMedia called, url=' + url + ' autoplay=' + autoplay);
-      mediaRetryCount = 0;
-      attemptPlayMedia(url, autoplay);
-    }
-
-    function attemptPlayMedia(url, autoplay) {
-      console.log('[RECEIVER] attemptPlayMedia attempt=' + (mediaRetryCount + 1));
+    function playVideo(url) {
       splash.classList.add('hidden');
       mediaPlayer.classList.remove('hidden');
       mediaPlayer.style.display = 'block';
-      videoPlayer.style.display = 'none';
-
-      stopStatusReporting();
-      if (mediaRetryTimer) { clearTimeout(mediaRetryTimer); mediaRetryTimer = null; }
-
-      // Remove old listeners to avoid duplicates
-      mediaPlayer.oncanplay = null;
-      mediaPlayer.onerror = null;
-
-      // Set up success handler
-      mediaPlayer.oncanplay = function () {
-        console.log('[RECEIVER] canplay fired — media ready');
-        mediaPlayer.oncanplay = null; // fire once
-        statusText.textContent = isAudioMode ? 'Playing Music' : 'Playing Video';
-        if (autoplay) {
-          const p = mediaPlayer.play();
-          if (p) p.catch(function (e) {
-            console.log('[RECEIVER] play() rejected: ' + e + ' — trying muted');
-            mediaPlayer.muted = true;
-            mediaPlayer.play().catch(function () { });
-          });
-        } else {
-          mediaPlayer.pause();
-          sendStatus('paused');
-          statusText.textContent = isAudioMode ? 'Music Ready' : 'Video Ready';
-        }
-      };
-
-      // Set up error handler with retry
-      mediaPlayer.onerror = function () {
-        // Ignore errors during intentional stop
-        if (mediaStopping) return;
-        const err = mediaPlayer.error;
-        console.log('[RECEIVER] media error: code=' + (err ? err.code : '?') + ' msg=' + (err ? err.message : '?'));
-        mediaRetryCount++;
-        if (mediaRetryCount <= MAX_MEDIA_RETRIES) {
-          console.log('[RECEIVER] retrying in ' + (mediaRetryCount * 1000) + 'ms (attempt ' + (mediaRetryCount + 1) + ')');
-          statusText.textContent = 'Loading...';
-          mediaRetryTimer = setTimeout(function () {
-            // Append cache-buster to force a fresh request
-            const sep = url.indexOf('?') >= 0 ? '&' : '?';
-            const retryUrl = url + sep + 'retry=' + mediaRetryCount;
-            mediaPlayer.src = retryUrl;
-            mediaPlayer.load();
-          }, mediaRetryCount * 1000);
-        } else {
-          console.log('[RECEIVER] all retries exhausted');
-          // Return to splash instead of showing error
-          returnToSplash();
-        }
-      };
-
-      // Kick off load
       mediaPlayer.src = url;
-      mediaPlayer.load();
+      mediaPlayer.play();
+      statusText.textContent = 'Playing Video';
+      videoPlayer.style.display = 'none';
     }
 
     function handleMediaControl(command, value) {
+      if (!mediaPlayer) return;
       switch (command) {
-        case 'play':
-          mediaPlayer.play();
-          break;
-        case 'pause':
-          mediaPlayer.pause();
-          break;
-        case 'seek':
-        case 'seekTo':
-          mediaPlayer.currentTime = parseFloat(value) || 0;
-          // Send updated status immediately after seek
-          setTimeout(() => sendStatus(mediaPlayer.paused ? 'paused' : 'playing'), 100);
-          break;
+        case 'play': mediaPlayer.play(); break;
+        case 'pause': mediaPlayer.pause(); break;
+        case 'seek': mediaPlayer.currentTime += value; break;
+        case 'seekTo': mediaPlayer.currentTime = value; break;
       }
     }
 
     function stopMediaCasting() {
-      mediaStopping = true;
-      stopStatusReporting();
-      // Clear handlers BEFORE clearing src to prevent the retry loop
-      mediaPlayer.oncanplay = null;
-      mediaPlayer.onerror = null;
-      if (mediaRetryTimer) { clearTimeout(mediaRetryTimer); mediaRetryTimer = null; }
-      mediaRetryCount = 0;
       mediaPlayer.pause();
-      mediaPlayer.removeAttribute('src');
-      mediaPlayer.load();
+      mediaPlayer.src = "";
       mediaPlayer.classList.add('hidden');
       mediaPlayer.style.display = 'none';
-      // Reset flag after a tick so future playMedia() calls work
-      setTimeout(() => { mediaStopping = false; }, 100);
     }
 
-    function stopAllMedia() {
-      stopMediaCasting();
-      stopImageCasting();
-      hideAudioOverlay();
-    }
-
-    // ── Image display ─────────────────────────────────────────────────
     function showImageBlob(blob) {
       let url = URL.createObjectURL(blob);
-      imageViewer.onload = () => {
-        URL.revokeObjectURL(url);
-        // Send confirmation to iOS sender that the image is now visible on TV
-        try {
-          context.sendCustomMessage(NAMESPACE, undefined, { type: 'IMAGE_DISPLAYED' });
-        } catch (e) { /* sender may not be connected */ }
-      };
+      imageViewer.onload = () => URL.revokeObjectURL(url);
       imageViewer.src = url;
       splash.classList.add('hidden');
       videoPlayer.style.display = 'none';
@@ -870,273 +259,108 @@
       statusText.textContent = 'Showing Image';
     }
 
-    // ── MJPEG mirroring ───────────────────────────────────────────────
-    var isMirroringActive = false;
-    var mjpegErrorTimer = null;
-    var mjpegRetryTimer = null;
-    var mjpegRetryCount = 0;
-    var currentMjpegUrl = '';
-    const MAX_MJPEG_RETRIES = 3; // retries before exiting to TV home
-
-
-    // Stream stall watchdog: periodically probes the MJPEG server to detect
-    // when the broadcast extension has been killed (user stopped broadcast
-    // outside the app, phone locked, etc.). The <img> onerror may NOT fire
-    // reliably when the server-side TCP connection is closed on a
-    // multipart/x-mixed-replace stream. This watchdog is the safety net.
-    var stallWatchdogTimer = null;
-    var consecutiveProbeFailures = 0;
-    const STALL_PROBE_INTERVAL = 10000; // Check every 10 seconds
-    const MAX_PROBE_FAILURES = 2;       // 2 consecutive failures (~20s) = dead
-
-    function startStallWatchdog() {
-      stopStallWatchdog();
-      consecutiveProbeFailures = 0;
-      stallWatchdogTimer = setInterval(() => {
-        if (!isMirroringActive || !currentMjpegUrl) {
-          stopStallWatchdog();
-          return;
-        }
-        // Build a probe URL from the MJPEG origin. We use mode:'no-cors' so
-        // even opaque 200/404 responses count as "server alive". Only a true
-        // network error (connection refused) increments the failure counter.
-        var probeUrl;
-        try {
-          var u = new URL(currentMjpegUrl);
-          probeUrl = u.origin + '/?_probe=' + Date.now();
-        } catch (e) {
-          return; // malformed URL, skip this cycle
-        }
-        var ctrl = new AbortController();
-        var to = setTimeout(() => ctrl.abort(), 5000);
-        fetch(probeUrl, { signal: ctrl.signal, mode: 'no-cors' })
-          .then(() => { clearTimeout(to); consecutiveProbeFailures = 0; })
-          .catch(() => {
-            clearTimeout(to);
-            consecutiveProbeFailures++;
-            console.log('[RECEIVER] Stall watchdog probe failed (' +
-              consecutiveProbeFailures + '/' + MAX_PROBE_FAILURES + ')');
-            if (consecutiveProbeFailures >= MAX_PROBE_FAILURES) {
-              console.log('[RECEIVER] MJPEG server unreachable — returning to splash');
-              stopMirroring();
-            }
-          });
-      }, STALL_PROBE_INTERVAL);
-    }
-
-    function stopStallWatchdog() {
-      if (stallWatchdogTimer) { clearInterval(stallWatchdogTimer); stallWatchdogTimer = null; }
-      consecutiveProbeFailures = 0;
-    }
+    // =============================================
+    // ULTRA LOW LATENCY MIRRORING
+    // =============================================
 
     function startMirroring(url) {
       cleanupMirroringConnection();
-      cleanupImageCastingWS();
-      videoPlayer.style.display = 'none';
-      stopAllMedia();
 
-      mjpegViewer.classList.remove('hidden');
-      mjpegViewer.style.display = 'block';
+      videoPlayer.style.display = 'block';
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
-      isMirroringActive = true;
-      currentMjpegUrl = url;
-      mjpegRetryCount = 0;
 
-      setupMjpegHandlers(url);
-      mjpegViewer.src = url;
+      // Create JMuxer with ULTRA LOW LATENCY settings
+      // clearBuffer: true removes old data aggressively
+      jmuxer = new JMuxer({
+        node: 'video-player',
+        mode: 'video',
+        flushingTime: 0,      // Immediate - no buffering
+        clearBuffer: true,    // Clear old buffer data
+        fps: 30,
+        debug: false,
+        onReady: () => {
+          videoPlayer.play().catch(() => { });
+        }
+      });
 
-      // Start stall watchdog to detect dead MJPEG server when onerror doesn't fire
-      startStallWatchdog();
-    }
-
-    function setupMjpegHandlers(url) {
-      mjpegViewer.onerror = () => {
-        if (!isMirroringActive) return;
-        console.log('[RECEIVER] MJPEG error - will retry (attempt ' + (mjpegRetryCount + 1) + ')');
-        // Instead of stopping, schedule a retry to reconnect to the MJPEG stream
-        if (mjpegErrorTimer) clearTimeout(mjpegErrorTimer);
-        mjpegErrorTimer = setTimeout(() => {
-          if (isMirroringActive) {
-            retryMjpegConnection();
-          }
-        }, 2000); // Wait 2s before first retry attempt
-      };
-      mjpegViewer.onload = () => {
-        if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
-        if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
-        mjpegRetryCount = 0;
-        statusText.textContent = 'Mirroring Screen';
-      };
-    }
-
-    function retryMjpegConnection() {
-      if (!isMirroringActive || !currentMjpegUrl) return;
-      mjpegRetryCount++;
-
-      if (mjpegRetryCount > MAX_MJPEG_RETRIES) {
-        console.log('[RECEIVER] MJPEG max retries exhausted - stopping');
-        stopMirroring();
-        return;
-      }
-
-      // Exponential backoff: 2s, 3s, 4s, 5s, then cap at 5s
-      var delay = Math.min(5000, 2000 + (mjpegRetryCount * 1000));
-      console.log('[RECEIVER] MJPEG retry #' + mjpegRetryCount + ' in ' + delay + 'ms');
-      statusText.textContent = 'Reconnecting...';
-
-      mjpegRetryTimer = setTimeout(() => {
-        if (!isMirroringActive) return;
-        // Add cache-buster to force fresh connection
-        var sep = currentMjpegUrl.indexOf('?') >= 0 ? '&' : '?';
-        var retryUrl = currentMjpegUrl + sep + '_r=' + Date.now();
-        console.log('[RECEIVER] MJPEG reconnecting to: ' + retryUrl);
-        setupMjpegHandlers(retryUrl);
-        mjpegViewer.src = retryUrl;
-      }, delay);
-    }
-
-    function cleanupMirroringConnection() {
-      isMirroringActive = false;
-      currentMjpegUrl = '';
-      mjpegRetryCount = 0;
-      if (mjpegErrorTimer) { clearTimeout(mjpegErrorTimer); mjpegErrorTimer = null; }
-      if (mjpegRetryTimer) { clearTimeout(mjpegRetryTimer); mjpegRetryTimer = null; }
-      stopStallWatchdog();
-      mjpegViewer.onerror = null;
-      mjpegViewer.onload = null;
-      mjpegViewer.src = '';
-      mjpegViewer.classList.add('hidden');
-      mjpegViewer.style.display = 'none';
-    }
-
-    function stopMirroring() {
-      cleanupMirroringConnection();
-      cleanupImageCastingWS();
-      stopAllMedia();
-      stopMirrorAudio();  // stop live app-audio stream
-      videoPlayer.style.display = 'none';
-      splash.classList.remove('hidden');
-      // Show connection-aware status
-      if (senderConnected) {
-        connectionMessage.textContent = 'Connected to ' + connectedDeviceName;
-        statusText.textContent = 'Connected — Ready to cast';
-        statusDot.classList.add('connected');
-      } else {
-        connectionMessage.textContent = 'Waiting for connection...';
-        statusText.textContent = 'Ready to receive';
-        statusDot.classList.remove('connected');
-      }
-      // Stay on the receiver splash — do NOT call context.stop().
-      // The Cast session stays alive so the user can cast something else
-      // without reconnecting.
-    }
-
-    // ── WebSocket image casting ───────────────────────────────────────
-    let ws = null;
-
-    function startImageCastingWS(url) {
-      cleanupImageCastingWS();
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
-      ws.onopen = () => { statusText.textContent = 'Image Casting Active'; };
+
+      ws.onopen = () => {
+        statusText.textContent = 'Mirroring Screen';
+        videoPlayer.play().catch(() => { });
+
+        // Start aggressive live-edge maintenance every 200ms
+        liveEdgeInterval = setInterval(() => {
+          if (videoPlayer.buffered.length > 0) {
+            const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+            const lag = end - videoPlayer.currentTime;
+            // If more than 200ms behind, jump to live edge
+            if (lag > 0.2) {
+              videoPlayer.currentTime = end - 0.03;
+            }
+          }
+          if (videoPlayer.paused) {
+            videoPlayer.play().catch(() => { });
+          }
+        }, 200);
+      };
+
       ws.onmessage = (event) => {
         const data = new Uint8Array(event.data);
+
+        // JPEG image check
         if (data.length > 2 && data[0] === 0xFF && data[1] === 0xD8) {
           showImageBlob(new Blob([data], { type: 'image/jpeg' }));
+          return;
+        }
+
+        // Feed to JMuxer immediately
+        if (jmuxer) {
+          jmuxer.feed({ video: data });
         }
       };
+
       ws.onerror = () => statusText.textContent = 'Connection Error';
       ws.onclose = () => statusText.textContent = 'Disconnected';
-    }
-
-    function cleanupImageCastingWS() {
-      if (ws) { ws.onclose = null; ws.close(); ws = null; }
     }
 
     function stopImageCasting() {
       imageViewer.classList.add('hidden');
       imageViewer.style.display = 'none';
-      imageViewer.src = '';
+      imageViewer.src = "";
     }
 
-    // ── Return to splash (home screen) ────────────────────────────────
-    function returnToSplash() {
-      stopAllMedia();
-      stopMirrorAudio();  // stop live app-audio stream
-      stopImageCasting();
+    function cleanupMirroringConnection() {
+      if (liveEdgeInterval) {
+        clearInterval(liveEdgeInterval);
+        liveEdgeInterval = null;
+      }
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+        ws = null;
+      }
+      if (jmuxer) {
+        jmuxer.destroy();
+        jmuxer = null;
+      }
+    }
+
+    function stopMirroring() {
       cleanupMirroringConnection();
-      cleanupImageCastingWS();
-      hideAudioOverlay();
+      stopMediaCasting();
+      stopImageCasting();
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
-
-      // Show connection-aware status:
-      // If a sender is still connected, show "Connected — Ready to cast"
-      // instead of "Waiting for connection..." which confuses the user.
-      if (senderConnected && context.getSenders().length > 0) {
-        connectionMessage.textContent = 'Connected to ' + connectedDeviceName;
-        statusText.textContent = 'Connected — Ready to cast';
-        statusDot.classList.add('connected');
-      } else {
-        senderConnected = false;
-        connectedDeviceName = '';
-        connectionMessage.textContent = 'Waiting for connection...';
-        statusText.textContent = 'Ready to receive';
-        statusDot.classList.remove('connected');
-      }
+      statusText.textContent = 'Ready to receive';
     }
-
-    // ── Sender disconnect handler ─────────────────────────────────────
-
-    // Helper: true if a video or audio is loaded in the media player
-    function isMediaActive() {
-      return mediaPlayer.src && mediaPlayer.src !== '' && !mediaPlayer.classList.contains('hidden');
-    }
-
-    // Helper: true if an image is currently displayed on screen
-    function isImageActive() {
-      return !imageViewer.classList.contains('hidden') && imageViewer.src && imageViewer.src !== '';
-    }
-
-    context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (event) => {
-      const mediaActive = isMediaActive();
-      const imageActive = isImageActive();
-      console.log('[RECEIVER] Sender disconnected. Mirroring: ' + isMirroringActive +
-        ', Media: ' + mediaActive + ', Image: ' + imageActive);
-      if (context.getSenders().length === 0) {
-        if (mediaActive || imageActive) {
-          // Video, audio, or image is actively being cast on the TV.
-          // The Chromecast plays media via its own HTTP fetch — it does NOT need
-          // the sender app to stay connected. Do NOT stop playback or close the
-          // receiver. The user backgrounded the iOS app; media continues on TV.
-          console.log('[RECEIVER] Sender gone but media/image active — keeping playback alive');
-        } else if (isMirroringActive) {
-          // Mirroring is active — the MJPEG stream is served by the broadcast
-          // extension on its own port (8088), completely independent of the Cast
-          // SDK sender connection. The sender disconnects when the app is
-          // backgrounded, but the extension keeps streaming frames.
-          //
-          // However, if the user actually stopped the broadcast, the MJPEG stream
-          // will die shortly. Reduce retry patience so we detect it fast.
-          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience');
-          mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
-        } else {
-          // Nothing active — return to splash and wait for next cast command.
-          // Do NOT call context.stop() — keep the receiver alive so the user
-          // can cast something else without reconnecting.
-          console.log('[RECEIVER] Sender gone, nothing active — returning to splash');
-          senderConnected = false;
-          connectedDeviceName = '';
-          returnToSplash();
-        }
-      }
-    });
 
     // Start Cast Receiver
     const options = new cast.framework.CastReceiverOptions();
     options.disableIdleTimeout = true;
-    options.maxInactivity = 86400;
+    options.maxInactivity = 3600;
     context.start(options);
   </script>
 </body>
