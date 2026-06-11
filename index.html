@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <title>Screen Mirror Receiver</title>
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jmuxer@latest/dist/jmuxer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -332,7 +332,6 @@
   </div>
 
   <video id="video-player" autoplay playsinline muted></video>
-  <img id="mirror-img" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; background: black; display: none; z-index: 5;">
   <video id="media-player" class="hidden" playsinline preload="auto"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
@@ -344,8 +343,6 @@
 
     const splash = document.getElementById('splash');
     const videoPlayer = document.getElementById('video-player');
-    const mirrorImg = document.getElementById('mirror-img');
-    var mirrorImgPending = false;
     const mediaPlayer = document.getElementById('media-player');
     const imageViewer = document.getElementById('image-viewer');
     const castMediaPlayer = document.getElementById('cast-media-player');
@@ -697,33 +694,7 @@
     var isMirroringActive = false;
     var mirrorWS = null;
     var mirrorJmuxer = null;
-
-    function renderJpegFrame(data) {
-      if (mirrorImgPending) return; // drop frame while previous is still decoding
-      mirrorImgPending = true;
-
-      // First JPEG frame: switch from video player to img element
-      if (mirrorImg.style.display === 'none') {
-        videoPlayer.style.display = 'none';
-        if (mirrorJmuxer) { try { mirrorJmuxer.destroy(); } catch(e) {} mirrorJmuxer = null; }
-        mirrorImg.style.display = 'block';
-        statusText.textContent = 'Mirroring Screen';
-        console.log('[RECEIVER] Switched to JPEG-over-WebSocket rendering');
-      }
-
-      var blob = new Blob([data], { type: 'image/jpeg' });
-      var url = URL.createObjectURL(blob);
-      var prevUrl = mirrorImg.src;
-      mirrorImg.onload = function() {
-        if (prevUrl && prevUrl.startsWith('blob:')) URL.revokeObjectURL(prevUrl);
-        mirrorImgPending = false;
-      };
-      mirrorImg.onerror = function() {
-        URL.revokeObjectURL(url);
-        mirrorImgPending = false;
-      };
-      mirrorImg.src = url;
-    }
+    var mirrorLiveEdge = null;
 
     function startMirroringWS(serverIP) {
       cleanupMirroringConnection();
@@ -735,68 +706,70 @@
       statusText.textContent = 'Connecting...';
 
       var wsUrl = 'ws://' + serverIP + ':8081';
-      console.log('[RECEIVER] Opening mirror WebSocket: ' + wsUrl);
+      console.log('[RECEIVER] Mirror WS: ' + wsUrl);
       mirrorWS = new WebSocket(wsUrl);
       mirrorWS.binaryType = 'arraybuffer';
 
       mirrorWS.onopen = function() {
-        console.log('[RECEIVER] Mirror WebSocket connected');
-        statusText.textContent = 'Connected — waiting for stream...';
+        statusText.textContent = 'Connected — starting stream...';
+        statusDot.classList.add('connected');
+
+        videoPlayer.muted = true; // muted required for Chromecast autoplay
+        videoPlayer.style.display = 'block';
+
+        mirrorJmuxer = new JMuxer({
+          node: 'video-player',
+          mode: 'video',
+          flushingTime: 0,
+          clearBuffer: true,
+          fps: 30,
+          debug: false,
+          onReady: function() {
+            statusText.textContent = 'Mirroring Screen';
+            videoPlayer.muted = false;
+            videoPlayer.play().catch(function() {});
+          },
+          onError: function(d) { console.warn('[RECEIVER] jmuxer error', d); }
+        });
+
+        // Aggressive live-edge: jump to within 30ms of live every 200ms
+        mirrorLiveEdge = setInterval(function() {
+          if (videoPlayer.buffered.length > 0) {
+            var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+            if (end - videoPlayer.currentTime > 0.3) {
+              videoPlayer.currentTime = end - 0.03;
+            }
+          }
+          if (videoPlayer.paused && isMirroringActive) {
+            videoPlayer.play().catch(function() {});
+          }
+        }, 200);
       };
 
       mirrorWS.onmessage = function(event) {
         var buf = new Uint8Array(event.data);
-        if (buf.length === 0) return;
-
-        if (buf[0] === 0xFF && buf[1] === 0xD8) {
-          // JPEG frame — render directly via <img> (current extension output)
-          renderJpegFrame(event.data);
-        } else if (buf[0] === 0x05) {
-          // AAC ADTS audio frame — feed jmuxer if active
-          if (mirrorJmuxer) mirrorJmuxer.feed({ audio: buf.slice(1) });
-        } else {
-          // H.264 Annex B video frame — lazy-init jmuxer
-          if (!mirrorJmuxer) {
-            mirrorImg.style.display = 'none';
-            videoPlayer.muted = false;
-            videoPlayer.style.display = 'block';
-            videoPlayer.style.position = 'absolute';
-            videoPlayer.style.top = '0';
-            videoPlayer.style.left = '0';
-            videoPlayer.style.width = '100%';
-            videoPlayer.style.height = '100%';
-            videoPlayer.style.objectFit = 'contain';
-            videoPlayer.style.background = 'black';
-            videoPlayer.style.zIndex = '5';
-            mirrorJmuxer = new JMuxer({
-              node: 'video-player',
-              mode: 'both',
-              flushingTime: 0,
-              clearBuffer: true,
-              fps: 30,
-              onReady: function() { statusText.textContent = 'Mirroring Screen'; },
-              onError: function(d) { console.warn('[RECEIVER] jmuxer error', d); }
-            });
-            console.log('[RECEIVER] Switched to H.264/jmuxer rendering');
-          }
-          mirrorJmuxer.feed({ video: buf, duration: 33 });
-        }
+        if (!buf.length || !mirrorJmuxer) return;
+        if (buf[0] === 0x05) return; // reserved for future AAC audio
+        mirrorJmuxer.feed({ video: buf, duration: 33 });
       };
 
       mirrorWS.onerror = function(e) {
-        console.warn('[RECEIVER] Mirror WebSocket error', e);
+        console.warn('[RECEIVER] Mirror WS error', e);
+        statusText.textContent = 'Stream Error';
+        statusDot.classList.remove('connected');
       };
 
       mirrorWS.onclose = function() {
-        console.log('[RECEIVER] Mirror WebSocket closed');
         if (isMirroringActive) {
           statusText.textContent = 'Stream paused — waiting for broadcast to resume...';
+          statusDot.classList.remove('connected');
         }
       };
     }
 
     function cleanupMirroringConnection() {
       isMirroringActive = false;
+      if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
       if (mirrorWS) {
         mirrorWS.onclose = null;
         mirrorWS.onerror = null;
@@ -810,11 +783,6 @@
       }
       videoPlayer.muted = true;
       videoPlayer.style.display = 'none';
-      // Clean up JPEG mirror img
-      mirrorImgPending = false;
-      if (mirrorImg.src && mirrorImg.src.startsWith('blob:')) URL.revokeObjectURL(mirrorImg.src);
-      mirrorImg.src = '';
-      mirrorImg.style.display = 'none';
     }
 
     function stopMirroring() {
