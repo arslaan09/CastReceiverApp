@@ -529,13 +529,17 @@
       if (data.type === 'START_MIRRORING') {
         stopAllMedia();
         hideAudioOverlay();
-        // serverIP is the iOS device's LAN IP; receiver opens ws://IP:8081
+        // serverIP is the iOS device's LAN IP
         let serverIP = data.serverIP;
+        let wsPort = data.wsPort || 10101;
         if (!serverIP && data.streamUrl) {
           try {
             if (data.streamUrl.startsWith('ws://') || data.streamUrl.startsWith('http://')) {
               const url = new URL(data.streamUrl);
               serverIP = url.hostname;
+              if (url.port) {
+                wsPort = parseInt(url.port) || wsPort;
+              }
             } else {
               serverIP = data.streamUrl;
             }
@@ -543,7 +547,7 @@
             serverIP = data.streamUrl;
           }
         }
-        if (serverIP) startMirroringWS(serverIP);
+        if (serverIP) startMirroringWS(serverIP, wsPort);
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
@@ -747,39 +751,70 @@
       statusText.textContent = 'Showing Image';
     }
 
-    // ── H.264 + AAC mirroring via WebSocket + jmuxer ─────────────────
-    // The iOS extension streams H.264 Annex B video and AAC ADTS audio over a
-    // single WebSocket connection. jmuxer muxes them into fMP4 and feeds the
-    // <video> element via MediaSource Extensions for low-latency playback.
-    //
-    // Wire protocol (binary WebSocket messages from the iOS server):
-    //   - First byte 0x05 → AAC ADTS audio frame(s); payload = raw ADTS
-    //   - Anything else → H.264 Annex B video; payload = full message
+    // ── H.264 mirroring via WebSocket + jmuxer ───────────────────────
+    // iOS streams H.264 Annex B over ws://phoneIP:10101 (AppConfig.tvWsPort).
+    // jmuxer muxes elementary streams into fMP4 for low-latency MSE playback.
+  //
+    // Wire protocol (binary WebSocket from iOS ServerManager):
+    //   0x05 prefix → AAC ADTS audio (future)
+    //   otherwise   → H.264 Annex B video NAL units
 
     var isMirroringActive = false;
     var mirrorWS = null;
     var mirrorJmuxer = null;
     var mirrorLiveEdge = null;
+    var mirrorServerIP = null;
+    var mirrorWsPort = 10101;
+    var mirrorReconnectTimer = null;
+    var mirrorReconnectAttempts = 0;
+    var mirrorMaxReconnectAttempts = 40;
 
-    function startMirroringWS(serverIP) {
-      cleanupMirroringConnection();
+    function startMirroringWS(serverIP, wsPort) {
       cleanupImageCastingWS();
       stopAllMedia();
 
+      mirrorServerIP = serverIP;
+      mirrorWsPort = wsPort || 10101;
+      mirrorReconnectAttempts = 0;
       isMirroringActive = true;
+
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
+      connectMirrorWebSocket();
+    }
 
-      var wsUrl = 'ws://' + serverIP + ':8081';
-      console.log('[RECEIVER] Mirror WS: ' + wsUrl);
+    function connectMirrorWebSocket() {
+      if (!isMirroringActive || !mirrorServerIP) return;
+
+      if (mirrorWS) {
+        mirrorWS.onclose = null;
+        mirrorWS.onerror = null;
+        mirrorWS.onmessage = null;
+        try { mirrorWS.close(); } catch (e) { }
+        mirrorWS = null;
+      }
+
+      if (mirrorReconnectTimer) {
+        clearTimeout(mirrorReconnectTimer);
+        mirrorReconnectTimer = null;
+      }
+
+      var wsUrl = 'ws://' + mirrorServerIP + ':' + mirrorWsPort;
+      console.log('[RECEIVER] Mirror WS connect: ' + wsUrl);
       mirrorWS = new WebSocket(wsUrl);
       mirrorWS.binaryType = 'arraybuffer';
 
       mirrorWS.onopen = function () {
+        mirrorReconnectAttempts = 0;
         statusText.textContent = 'Connected — starting stream...';
         statusDot.classList.add('connected');
 
-        videoPlayer.muted = true; // muted required for Chromecast autoplay
+        if (mirrorJmuxer) {
+          try { mirrorJmuxer.destroy(); } catch (e) { }
+          mirrorJmuxer = null;
+        }
+
+        videoPlayer.muted = true;
         videoPlayer.style.display = 'block';
 
         mirrorJmuxer = new JMuxer({
@@ -797,7 +832,7 @@
           onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
         });
 
-        // Aggressive live-edge: jump to within 30ms of live every 200ms
+        if (mirrorLiveEdge) clearInterval(mirrorLiveEdge);
         mirrorLiveEdge = setInterval(function () {
           if (videoPlayer.buffered.length > 0) {
             var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
@@ -814,32 +849,48 @@
       mirrorWS.onmessage = function (event) {
         var buf = new Uint8Array(event.data);
         if (!buf.length || !mirrorJmuxer) return;
-        if (buf[0] === 0x05) return; // reserved for future AAC audio
+        if (buf[0] === 0x05) return; // AAC audio — future
         mirrorJmuxer.feed({ video: buf, duration: 33 });
       };
 
       mirrorWS.onerror = function (e) {
         console.warn('[RECEIVER] Mirror WS error', e);
-        statusText.textContent = 'Stream Error';
+        statusText.textContent = 'Stream Error — reconnecting...';
         statusDot.classList.remove('connected');
       };
 
       mirrorWS.onclose = function () {
-        if (isMirroringActive) {
-          statusText.textContent = 'Stream paused — waiting for broadcast to resume...';
-          statusDot.classList.remove('connected');
+        if (!isMirroringActive) return;
+        statusDot.classList.remove('connected');
+        if (mirrorReconnectAttempts < mirrorMaxReconnectAttempts) {
+          mirrorReconnectAttempts++;
+          statusText.textContent = 'Reconnecting stream (' + mirrorReconnectAttempts + ')...';
+          mirrorReconnectTimer = setTimeout(function () {
+            connectMirrorWebSocket();
+          }, 1000);
+        } else {
+          statusText.textContent = 'Stream paused — waiting for broadcast...';
         }
       };
     }
 
     function cleanupMirroringConnection() {
       isMirroringActive = false;
-      if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
+      mirrorServerIP = null;
+      mirrorReconnectAttempts = 0;
+      if (mirrorReconnectTimer) {
+        clearTimeout(mirrorReconnectTimer);
+        mirrorReconnectTimer = null;
+      }
+      if (mirrorLiveEdge) {
+        clearInterval(mirrorLiveEdge);
+        mirrorLiveEdge = null;
+      }
       if (mirrorWS) {
         mirrorWS.onclose = null;
         mirrorWS.onerror = null;
         mirrorWS.onmessage = null;
-        mirrorWS.close();
+        try { mirrorWS.close(); } catch (e) { }
         mirrorWS = null;
       }
       if (mirrorJmuxer) {
