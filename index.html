@@ -169,8 +169,17 @@
     }
 
     @keyframes glow-pulse {
-      0%, 100% { transform: scale(1); opacity: 0.6; }
-      50% { transform: scale(1.15); opacity: 1; }
+
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 0.6;
+      }
+
+      50% {
+        transform: scale(1.15);
+        opacity: 1;
+      }
     }
 
     /* Vinyl disc */
@@ -179,15 +188,15 @@
       width: 280px;
       height: 280px;
       border-radius: 50%;
-      background: 
+      background:
         radial-gradient(circle at center, #1a1a2e 15%, transparent 16%),
-        radial-gradient(circle at center, transparent 30%, rgba(255,255,255,0.03) 31%, transparent 32%),
-        radial-gradient(circle at center, transparent 45%, rgba(255,255,255,0.03) 46%, transparent 47%),
-        radial-gradient(circle at center, transparent 60%, rgba(255,255,255,0.03) 61%, transparent 62%),
-        radial-gradient(circle at center, transparent 75%, rgba(255,255,255,0.03) 76%, transparent 77%),
+        radial-gradient(circle at center, transparent 30%, rgba(255, 255, 255, 0.03) 31%, transparent 32%),
+        radial-gradient(circle at center, transparent 45%, rgba(255, 255, 255, 0.03) 46%, transparent 47%),
+        radial-gradient(circle at center, transparent 60%, rgba(255, 255, 255, 0.03) 61%, transparent 62%),
+        radial-gradient(circle at center, transparent 75%, rgba(255, 255, 255, 0.03) 76%, transparent 77%),
         linear-gradient(135deg, #2d2d44 0%, #1a1a2e 100%);
       box-shadow: 0 0 60px rgba(102, 126, 234, 0.2),
-                  inset 0 0 30px rgba(0, 0, 0, 0.5);
+        inset 0 0 30px rgba(0, 0, 0, 0.5);
       animation: spin-disc 8s linear infinite;
     }
 
@@ -196,8 +205,13 @@
     }
 
     @keyframes spin-disc {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+      from {
+        transform: rotate(0deg);
+      }
+
+      to {
+        transform: rotate(360deg);
+      }
     }
 
     /* Center label on disc */
@@ -266,23 +280,61 @@
       height: 8px !important;
     }
 
-    .eq-bar:nth-child(1) { animation-delay: 0s; }
-    .eq-bar:nth-child(2) { animation-delay: 0.15s; }
-    .eq-bar:nth-child(3) { animation-delay: 0.3s; }
-    .eq-bar:nth-child(4) { animation-delay: 0.45s; }
-    .eq-bar:nth-child(5) { animation-delay: 0.6s; }
-    .eq-bar:nth-child(6) { animation-delay: 0.75s; }
-    .eq-bar:nth-child(7) { animation-delay: 0.9s; }
-    .eq-bar:nth-child(8) { animation-delay: 0.2s; }
-    .eq-bar:nth-child(9) { animation-delay: 0.5s; }
-
-    @keyframes eq-bounce {
-      0%, 100% { height: 8px; }
-      25% { height: 35px; }
-      50% { height: 18px; }
-      75% { height: 45px; }
+    .eq-bar:nth-child(1) {
+      animation-delay: 0s;
     }
 
+    .eq-bar:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    .eq-bar:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+
+    .eq-bar:nth-child(4) {
+      animation-delay: 0.45s;
+    }
+
+    .eq-bar:nth-child(5) {
+      animation-delay: 0.6s;
+    }
+
+    .eq-bar:nth-child(6) {
+      animation-delay: 0.75s;
+    }
+
+    .eq-bar:nth-child(7) {
+      animation-delay: 0.9s;
+    }
+
+    .eq-bar:nth-child(8) {
+      animation-delay: 0.2s;
+    }
+
+    .eq-bar:nth-child(9) {
+      animation-delay: 0.5s;
+    }
+
+    @keyframes eq-bounce {
+
+      0%,
+      100% {
+        height: 8px;
+      }
+
+      25% {
+        height: 35px;
+      }
+
+      50% {
+        height: 18px;
+      }
+
+      75% {
+        height: 45px;
+      }
+    }
   </style>
 </head>
 
@@ -309,7 +361,7 @@
       <div class="audio-disc" id="audioDisc">
         <div class="audio-disc-center">
           <svg viewBox="0 0 24 24">
-            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
           </svg>
         </div>
       </div>
@@ -723,7 +775,7 @@
       mirrorWS = new WebSocket(wsUrl);
       mirrorWS.binaryType = 'arraybuffer';
 
-      mirrorWS.onopen = function() {
+      mirrorWS.onopen = function () {
         statusText.textContent = 'Connected — starting stream...';
         statusDot.classList.add('connected');
 
@@ -737,16 +789,16 @@
           clearBuffer: true,
           fps: 30,
           debug: false,
-          onReady: function() {
+          onReady: function () {
             statusText.textContent = 'Mirroring Screen';
             videoPlayer.muted = false;
-            videoPlayer.play().catch(function() {});
+            videoPlayer.play().catch(function () { });
           },
-          onError: function(d) { console.warn('[RECEIVER] jmuxer error', d); }
+          onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
         });
 
         // Aggressive live-edge: jump to within 30ms of live every 200ms
-        mirrorLiveEdge = setInterval(function() {
+        mirrorLiveEdge = setInterval(function () {
           if (videoPlayer.buffered.length > 0) {
             var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             if (end - videoPlayer.currentTime > 0.3) {
@@ -754,25 +806,25 @@
             }
           }
           if (videoPlayer.paused && isMirroringActive) {
-            videoPlayer.play().catch(function() {});
+            videoPlayer.play().catch(function () { });
           }
         }, 200);
       };
 
-      mirrorWS.onmessage = function(event) {
+      mirrorWS.onmessage = function (event) {
         var buf = new Uint8Array(event.data);
         if (!buf.length || !mirrorJmuxer) return;
         if (buf[0] === 0x05) return; // reserved for future AAC audio
         mirrorJmuxer.feed({ video: buf, duration: 33 });
       };
 
-      mirrorWS.onerror = function(e) {
+      mirrorWS.onerror = function (e) {
         console.warn('[RECEIVER] Mirror WS error', e);
         statusText.textContent = 'Stream Error';
         statusDot.classList.remove('connected');
       };
 
-      mirrorWS.onclose = function() {
+      mirrorWS.onclose = function () {
         if (isMirroringActive) {
           statusText.textContent = 'Stream paused — waiting for broadcast to resume...';
           statusDot.classList.remove('connected');
@@ -791,7 +843,7 @@
         mirrorWS = null;
       }
       if (mirrorJmuxer) {
-        try { mirrorJmuxer.destroy(); } catch(e) {}
+        try { mirrorJmuxer.destroy(); } catch (e) { }
         mirrorJmuxer = null;
       }
       videoPlayer.muted = true;
