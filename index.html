@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 
@@ -169,8 +170,17 @@
     }
 
     @keyframes glow-pulse {
-      0%, 100% { transform: scale(1); opacity: 0.6; }
-      50% { transform: scale(1.15); opacity: 1; }
+
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 0.6;
+      }
+
+      50% {
+        transform: scale(1.15);
+        opacity: 1;
+      }
     }
 
     /* Vinyl disc */
@@ -179,15 +189,15 @@
       width: 280px;
       height: 280px;
       border-radius: 50%;
-      background: 
+      background:
         radial-gradient(circle at center, #1a1a2e 15%, transparent 16%),
-        radial-gradient(circle at center, transparent 30%, rgba(255,255,255,0.03) 31%, transparent 32%),
-        radial-gradient(circle at center, transparent 45%, rgba(255,255,255,0.03) 46%, transparent 47%),
-        radial-gradient(circle at center, transparent 60%, rgba(255,255,255,0.03) 61%, transparent 62%),
-        radial-gradient(circle at center, transparent 75%, rgba(255,255,255,0.03) 76%, transparent 77%),
+        radial-gradient(circle at center, transparent 30%, rgba(255, 255, 255, 0.03) 31%, transparent 32%),
+        radial-gradient(circle at center, transparent 45%, rgba(255, 255, 255, 0.03) 46%, transparent 47%),
+        radial-gradient(circle at center, transparent 60%, rgba(255, 255, 255, 0.03) 61%, transparent 62%),
+        radial-gradient(circle at center, transparent 75%, rgba(255, 255, 255, 0.03) 76%, transparent 77%),
         linear-gradient(135deg, #2d2d44 0%, #1a1a2e 100%);
       box-shadow: 0 0 60px rgba(102, 126, 234, 0.2),
-                  inset 0 0 30px rgba(0, 0, 0, 0.5);
+        inset 0 0 30px rgba(0, 0, 0, 0.5);
       animation: spin-disc 8s linear infinite;
     }
 
@@ -196,8 +206,13 @@
     }
 
     @keyframes spin-disc {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+      from {
+        transform: rotate(0deg);
+      }
+
+      to {
+        transform: rotate(360deg);
+      }
     }
 
     /* Center label on disc */
@@ -266,23 +281,61 @@
       height: 8px !important;
     }
 
-    .eq-bar:nth-child(1) { animation-delay: 0s; }
-    .eq-bar:nth-child(2) { animation-delay: 0.15s; }
-    .eq-bar:nth-child(3) { animation-delay: 0.3s; }
-    .eq-bar:nth-child(4) { animation-delay: 0.45s; }
-    .eq-bar:nth-child(5) { animation-delay: 0.6s; }
-    .eq-bar:nth-child(6) { animation-delay: 0.75s; }
-    .eq-bar:nth-child(7) { animation-delay: 0.9s; }
-    .eq-bar:nth-child(8) { animation-delay: 0.2s; }
-    .eq-bar:nth-child(9) { animation-delay: 0.5s; }
-
-    @keyframes eq-bounce {
-      0%, 100% { height: 8px; }
-      25% { height: 35px; }
-      50% { height: 18px; }
-      75% { height: 45px; }
+    .eq-bar:nth-child(1) {
+      animation-delay: 0s;
     }
 
+    .eq-bar:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    .eq-bar:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+
+    .eq-bar:nth-child(4) {
+      animation-delay: 0.45s;
+    }
+
+    .eq-bar:nth-child(5) {
+      animation-delay: 0.6s;
+    }
+
+    .eq-bar:nth-child(6) {
+      animation-delay: 0.75s;
+    }
+
+    .eq-bar:nth-child(7) {
+      animation-delay: 0.9s;
+    }
+
+    .eq-bar:nth-child(8) {
+      animation-delay: 0.2s;
+    }
+
+    .eq-bar:nth-child(9) {
+      animation-delay: 0.5s;
+    }
+
+    @keyframes eq-bounce {
+
+      0%,
+      100% {
+        height: 8px;
+      }
+
+      25% {
+        height: 35px;
+      }
+
+      50% {
+        height: 18px;
+      }
+
+      75% {
+        height: 45px;
+      }
+    }
   </style>
 </head>
 
@@ -309,7 +362,7 @@
       <div class="audio-disc" id="audioDisc">
         <div class="audio-disc-center">
           <svg viewBox="0 0 24 24">
-            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
           </svg>
         </div>
       </div>
@@ -332,8 +385,6 @@
   </div>
 
   <video id="video-player" autoplay playsinline muted></video>
-  <img id="mjpeg-viewer" class="hidden"
-    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 5; background: black; will-change: contents; transform: translateZ(0); image-rendering: auto;">
   <video id="media-player" class="hidden" playsinline preload="auto"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
@@ -345,7 +396,6 @@
 
     const splash = document.getElementById('splash');
     const videoPlayer = document.getElementById('video-player');
-    const mjpegViewer = document.getElementById('mjpeg-viewer');
     const mediaPlayer = document.getElementById('media-player');
     const imageViewer = document.getElementById('image-viewer');
     const castMediaPlayer = document.getElementById('cast-media-player');
@@ -480,20 +530,28 @@
       if (data.type === 'START_MIRRORING') {
         stopAllMedia();
         hideAudioOverlay();
-        stopMirrorAudio();  // stop any previous audio stream
-        if (data.streamUrl) startMirroring(data.streamUrl);
+        // serverIP is the iOS device's LAN IP
+        let serverIP = data.serverIP;
+        let wsPort = data.wsPort || 10101;
+        if (!serverIP && data.streamUrl) {
+          try {
+            if (data.streamUrl.startsWith('ws://') || data.streamUrl.startsWith('http://')) {
+              const url = new URL(data.streamUrl);
+              serverIP = url.hostname;
+              if (url.port) {
+                wsPort = parseInt(url.port) || wsPort;
+              }
+            } else {
+              serverIP = data.streamUrl;
+            }
+          } catch (e) {
+            serverIP = data.streamUrl;
+          }
+        }
+        if (serverIP) startMirroringWS(serverIP, wsPort);
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
-
-      // Live app-audio stream (game/movie system audio from the iOS device)
-      if (data.type === 'START_AUDIO_STREAM') {
-        if (data.audioUrl) startMirrorAudio(data.audioUrl);
-      }
-
-      if (data.type === 'STOP_AUDIO_STREAM') {
-        stopMirrorAudio();
-      }
 
       // STOP_CASTING: user left the video/audio/image player screen.
       // Stop playback and return to splash — but keep the receiver alive
@@ -560,185 +618,8 @@
       console.log('[RECEIVER] Audio overlay hidden');
     }
 
-    // ── Mirror App-Audio Streaming (Web Audio API) ─────────────────
-    // Uses fetch + ReadableStream to pull raw PCM from the /audio-stream
-    // WAV endpoint, then feeds it into Web Audio API via ScriptProcessorNode
-    // for low-latency playback during screen mirroring.
-    var _audioCtx = null;
-    var _audioAbort = null;
-    var _audioScriptNode = null;
-    var _pcmQueue = [];       // queue of {data: Int16Array, offset: 0}
-    var _audioChannels = 2;
-    var _audioRetryTimer = null;
-    var _audioRetryCount = 0;
-    var _currentAudioUrl = '';
-    var MAX_AUDIO_RETRIES = 5;
-
-    function startMirrorAudio(url) {
-      stopMirrorAudio();
-      _currentAudioUrl = url;
-      _audioRetryCount = 0;
-      console.log('[RECEIVER] Starting mirror audio (Web Audio API) from: ' + url);
-      attemptAudioConnection(url);
-    }
-
-    function attemptAudioConnection(url) {
-      if (_audioAbort) { _audioAbort.abort(); }
-      _audioAbort = new AbortController();
-
-      var fetchUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
-      fetch(fetchUrl, { signal: _audioAbort.signal })
-        .then(function(response) {
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          if (!response.body) throw new Error('ReadableStream not supported');
-          console.log('[RECEIVER] Audio stream connected');
-          _audioRetryCount = 0;
-          var reader = response.body.getReader();
-          processAudioStream(reader);
-        })
-        .catch(function(err) {
-          if (err.name === 'AbortError') return;
-          console.warn('[RECEIVER] Audio fetch error: ' + err);
-          retryAudioConnection();
-        });
-    }
-
-    function retryAudioConnection() {
-      if (!_currentAudioUrl) return;
-      _audioRetryCount++;
-      if (_audioRetryCount > MAX_AUDIO_RETRIES) {
-        console.log('[RECEIVER] Audio max retries exhausted');
-        return;
-      }
-      var delay = Math.min(5000, 1000 * _audioRetryCount);
-      console.log('[RECEIVER] Audio retry #' + _audioRetryCount + ' in ' + delay + 'ms');
-      _audioRetryTimer = setTimeout(function() {
-        if (_currentAudioUrl) attemptAudioConnection(_currentAudioUrl);
-      }, delay);
-    }
-
-    function processAudioStream(reader) {
-      var headerBuf = new Uint8Array(0);
-      var wavParsed = false;
-      var sampleRate = 48000;
-
-      function pump() {
-        reader.read().then(function(result) {
-          if (result.done) {
-            console.log('[RECEIVER] Audio stream ended');
-            retryAudioConnection();
-            return;
-          }
-          var chunk = result.value;
-
-          if (!wavParsed) {
-            // Accumulate until we have the 44-byte WAV header
-            var merged = new Uint8Array(headerBuf.length + chunk.length);
-            merged.set(headerBuf);
-            merged.set(chunk, headerBuf.length);
-            headerBuf = merged;
-
-            if (headerBuf.length >= 44) {
-              var dv = new DataView(headerBuf.buffer);
-              _audioChannels = dv.getUint16(22, true);
-              sampleRate = dv.getUint32(24, true);
-              console.log('[RECEIVER] WAV header parsed: ' + sampleRate + 'Hz, ' + _audioChannels + 'ch');
-
-              initWebAudio(sampleRate);
-              wavParsed = true;
-
-              if (headerBuf.length > 44) {
-                enqueuePCM(headerBuf.slice(44));
-              }
-            }
-            pump();
-            return;
-          }
-
-          enqueuePCM(chunk);
-          pump();
-        }).catch(function(err) {
-          if (err.name === 'AbortError') return;
-          console.warn('[RECEIVER] Audio stream read error: ' + err);
-          retryAudioConnection();
-        });
-      }
-      pump();
-    }
-
-    function initWebAudio(sampleRate) {
-      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} }
-      if (_audioScriptNode) { _audioScriptNode.disconnect(); _audioScriptNode = null; }
-      _pcmQueue = [];
-
-      _audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: sampleRate });
-
-      // 4096 frames buffer ~ 85ms at 48kHz — low enough latency for mirroring
-      _audioScriptNode = _audioCtx.createScriptProcessor(4096, 0, _audioChannels);
-      _audioScriptNode.onaudioprocess = function(e) {
-        var outBuf = e.outputBuffer;
-        var frames = outBuf.length;
-        var ch = outBuf.numberOfChannels;
-        var channels = [];
-        for (var c = 0; c < ch; c++) { channels.push(outBuf.getChannelData(c)); }
-
-        var filled = 0;
-        while (filled < frames && _pcmQueue.length > 0) {
-          var item = _pcmQueue[0];
-          var avail = Math.floor((item.data.length - item.offset) / ch);
-          var need = frames - filled;
-          var copy = Math.min(avail, need);
-
-          for (var i = 0; i < copy; i++) {
-            for (var c = 0; c < ch; c++) {
-              channels[c][filled + i] = item.data[item.offset + i * ch + c] / 32768.0;
-            }
-          }
-          item.offset += copy * ch;
-          filled += copy;
-
-          if (item.offset >= item.data.length) { _pcmQueue.shift(); }
-        }
-        // Fill remaining with silence
-        for (var i = filled; i < frames; i++) {
-          for (var c = 0; c < ch; c++) { channels[c][i] = 0; }
-        }
-      };
-      _audioScriptNode.connect(_audioCtx.destination);
-      console.log('[RECEIVER] Web Audio initialized: ' + sampleRate + 'Hz, ' + _audioChannels + 'ch');
-    }
-
-    function enqueuePCM(uint8Chunk) {
-      // Convert Uint8Array to Int16Array (PCM 16-bit little-endian interleaved)
-      // Ensure even length for Int16 alignment
-      var len = uint8Chunk.length & ~1;
-      if (len === 0) return;
-      var aligned = uint8Chunk.slice(0, len);
-      var int16 = new Int16Array(aligned.buffer, aligned.byteOffset, len / 2);
-      _pcmQueue.push({ data: int16, offset: 0 });
-
-      // Prevent unbounded queue growth (cap at ~2 seconds of audio)
-      var maxSamples = (_audioCtx ? _audioCtx.sampleRate : 48000) * _audioChannels * 2;
-      var total = 0;
-      for (var i = 0; i < _pcmQueue.length; i++) {
-        total += _pcmQueue[i].data.length - _pcmQueue[i].offset;
-      }
-      while (total > maxSamples && _pcmQueue.length > 1) {
-        var dropped = _pcmQueue.shift();
-        total -= (dropped.data.length - dropped.offset);
-      }
-    }
-
-    function stopMirrorAudio() {
-      _currentAudioUrl = '';
-      if (_audioRetryTimer) { clearTimeout(_audioRetryTimer); _audioRetryTimer = null; }
-      if (_audioAbort) { _audioAbort.abort(); _audioAbort = null; }
-      if (_audioScriptNode) { _audioScriptNode.disconnect(); _audioScriptNode = null; }
-      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} _audioCtx = null; }
-      _pcmQueue = [];
-      _audioRetryCount = 0;
-      console.log('[RECEIVER] Mirror audio stopped');
-    }
+    // Audio is now delivered inside the same WebSocket stream as video (type byte 0x05 = AAC ADTS).
+    // jmuxer handles both video and audio synchronization via MediaSource Extensions.
 
     // ── Media playback ────────────────────────────────────────────────
     var mediaRetryCount = 0;
@@ -871,40 +752,71 @@
       statusText.textContent = 'Showing Image';
     }
 
-    // ── H.264 mirroring via WebSocket (port 10101) + jmuxer ─────────────
+    // ── H.264 mirroring via WebSocket + jmuxer ───────────────────────
+    // iOS streams H.264 Annex B over ws://phoneIP:10101 (AppConfig.tvWsPort).
+    // jmuxer muxes elementary streams into fMP4 for low-latency MSE playback.
+  //
+    // Wire protocol (binary WebSocket from iOS ServerManager):
+    //   0x05 prefix → AAC ADTS audio (future)
+    //   otherwise   → H.264 Annex B video NAL units
+
     var isMirroringActive = false;
     var mirrorWS = null;
     var mirrorJmuxer = null;
     var mirrorLiveEdge = null;
+    var mirrorServerIP = null;
+    var mirrorWsPort = 10101;
+    var mirrorReconnectTimer = null;
+    var mirrorReconnectAttempts = 0;
+    var mirrorMaxReconnectAttempts = 40;
 
-    // Accepts either a raw IP or a full URL (e.g. http://IP:10100/mjpeg) — extracts IP
-    function startMirroring(url) {
-      var ip = url || '';
-      if (ip.startsWith('http://') || ip.startsWith('https://')) {
-        var m = ip.match(/\/\/([^:\/?]+)/);
-        if (m) ip = m[1];
-      }
-      startMirroringWS(ip);
-    }
-
-    function startMirroringWS(serverIP) {
-      cleanupMirroringConnection();
+    function startMirroringWS(serverIP, wsPort) {
       cleanupImageCastingWS();
       stopAllMedia();
+
+      mirrorServerIP = serverIP;
+      mirrorWsPort = wsPort || 10101;
+      mirrorReconnectAttempts = 0;
       isMirroringActive = true;
+
       splash.classList.add('hidden');
       statusText.textContent = 'Connecting...';
-      videoPlayer.muted = true;
-      videoPlayer.style.display = 'block';
+      connectMirrorWebSocket();
+    }
 
-      var wsUrl = 'ws://' + serverIP + ':10101';
-      console.log('[RECEIVER] Mirror WS: ' + wsUrl);
+    function connectMirrorWebSocket() {
+      if (!isMirroringActive || !mirrorServerIP) return;
+
+      if (mirrorWS) {
+        mirrorWS.onclose = null;
+        mirrorWS.onerror = null;
+        mirrorWS.onmessage = null;
+        try { mirrorWS.close(); } catch (e) { }
+        mirrorWS = null;
+      }
+
+      if (mirrorReconnectTimer) {
+        clearTimeout(mirrorReconnectTimer);
+        mirrorReconnectTimer = null;
+      }
+
+      var wsUrl = 'ws://' + mirrorServerIP + ':' + mirrorWsPort;
+      console.log('[RECEIVER] Mirror WS connect: ' + wsUrl);
       mirrorWS = new WebSocket(wsUrl);
       mirrorWS.binaryType = 'arraybuffer';
 
-      mirrorWS.onopen = function() {
+      mirrorWS.onopen = function () {
+        mirrorReconnectAttempts = 0;
         statusText.textContent = 'Connected — starting stream...';
         statusDot.classList.add('connected');
+
+        if (mirrorJmuxer) {
+          try { mirrorJmuxer.destroy(); } catch (e) { }
+          mirrorJmuxer = null;
+        }
+
+        videoPlayer.muted = true;
+        videoPlayer.style.display = 'block';
 
         mirrorJmuxer = new JMuxer({
           node: 'video-player',
@@ -913,53 +825,79 @@
           clearBuffer: true,
           fps: 30,
           debug: false,
-          onReady: function() {
+          onReady: function () {
             statusText.textContent = 'Mirroring Screen';
             videoPlayer.muted = false;
-            videoPlayer.play().catch(function() {});
+            videoPlayer.play().catch(function () { });
           },
-          onError: function(d) { console.warn('[RECEIVER] jmuxer error', d); }
+          onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
         });
 
-        // Aggressive live-edge: keep playback within 30ms of live every 200ms
-        mirrorLiveEdge = setInterval(function() {
+        if (mirrorLiveEdge) clearInterval(mirrorLiveEdge);
+        mirrorLiveEdge = setInterval(function () {
           if (videoPlayer.buffered.length > 0) {
             var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-            if (end - videoPlayer.currentTime > 0.3) videoPlayer.currentTime = end - 0.03;
+            if (end - videoPlayer.currentTime > 0.3) {
+              videoPlayer.currentTime = end - 0.03;
+            }
           }
-          if (videoPlayer.paused && isMirroringActive) videoPlayer.play().catch(function() {});
+          if (videoPlayer.paused && isMirroringActive) {
+            videoPlayer.play().catch(function () { });
+          }
         }, 200);
       };
 
-      mirrorWS.onmessage = function(event) {
+      mirrorWS.onmessage = function (event) {
         var buf = new Uint8Array(event.data);
         if (!buf.length || !mirrorJmuxer) return;
-        if (buf[0] === 0x05) return; // reserved for future AAC
+        if (buf[0] === 0x05) return; // AAC audio — future
         mirrorJmuxer.feed({ video: buf, duration: 33 });
       };
 
-      mirrorWS.onerror = function(e) {
+      mirrorWS.onerror = function (e) {
         console.warn('[RECEIVER] Mirror WS error', e);
-        statusText.textContent = 'Stream Error';
+        statusText.textContent = 'Stream Error — reconnecting...';
         statusDot.classList.remove('connected');
       };
 
-      mirrorWS.onclose = function() {
-        if (isMirroringActive) {
-          statusText.textContent = 'Stream paused — waiting for broadcast to resume...';
-          statusDot.classList.remove('connected');
+      mirrorWS.onclose = function () {
+        if (!isMirroringActive) return;
+        statusDot.classList.remove('connected');
+        if (mirrorReconnectAttempts < mirrorMaxReconnectAttempts) {
+          mirrorReconnectAttempts++;
+          statusText.textContent = 'Reconnecting stream (' + mirrorReconnectAttempts + ')...';
+          mirrorReconnectTimer = setTimeout(function () {
+            connectMirrorWebSocket();
+          }, 1000);
+        } else {
+          statusText.textContent = 'Stream paused — waiting for broadcast...';
         }
       };
     }
 
     function cleanupMirroringConnection() {
       isMirroringActive = false;
-      if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
-      if (mirrorWS) {
-        mirrorWS.onclose = null; mirrorWS.onerror = null; mirrorWS.onmessage = null;
-        mirrorWS.close(); mirrorWS = null;
+      mirrorServerIP = null;
+      mirrorReconnectAttempts = 0;
+      if (mirrorReconnectTimer) {
+        clearTimeout(mirrorReconnectTimer);
+        mirrorReconnectTimer = null;
       }
-      if (mirrorJmuxer) { try { mirrorJmuxer.destroy(); } catch(e) {} mirrorJmuxer = null; }
+      if (mirrorLiveEdge) {
+        clearInterval(mirrorLiveEdge);
+        mirrorLiveEdge = null;
+      }
+      if (mirrorWS) {
+        mirrorWS.onclose = null;
+        mirrorWS.onerror = null;
+        mirrorWS.onmessage = null;
+        try { mirrorWS.close(); } catch (e) { }
+        mirrorWS = null;
+      }
+      if (mirrorJmuxer) {
+        try { mirrorJmuxer.destroy(); } catch (e) { }
+        mirrorJmuxer = null;
+      }
       videoPlayer.muted = true;
       videoPlayer.style.display = 'none';
     }
@@ -968,10 +906,8 @@
       cleanupMirroringConnection();
       cleanupImageCastingWS();
       stopAllMedia();
-      stopMirrorAudio();  // stop live app-audio stream
       videoPlayer.style.display = 'none';
       splash.classList.remove('hidden');
-      // Show connection-aware status
       if (senderConnected) {
         connectionMessage.textContent = 'Connected to ' + connectedDeviceName;
         statusText.textContent = 'Connected — Ready to cast';
@@ -981,9 +917,6 @@
         statusText.textContent = 'Ready to receive';
         statusDot.classList.remove('connected');
       }
-      // Stay on the receiver splash — do NOT call context.stop().
-      // The Cast session stays alive so the user can cast something else
-      // without reconnecting.
     }
 
     // ── WebSocket image casting ───────────────────────────────────────
@@ -1017,7 +950,6 @@
     // ── Return to splash (home screen) ────────────────────────────────
     function returnToSplash() {
       stopAllMedia();
-      stopMirrorAudio();  // stop live app-audio stream
       stopImageCasting();
       cleanupMirroringConnection();
       cleanupImageCastingWS();
@@ -1066,15 +998,11 @@
           // receiver. The user backgrounded the iOS app; media continues on TV.
           console.log('[RECEIVER] Sender gone but media/image active — keeping playback alive');
         } else if (isMirroringActive) {
-          // Mirroring is active — the H.264/WebSocket stream (port 10101) is fed by
-          // the broadcast extension, completely independent of the Cast
-          // SDK sender connection. The sender disconnects when the app is
-          // backgrounded, but the extension keeps streaming frames.
-          //
-          // However, if the user actually stopped the broadcast, the MJPEG stream
-          // will die shortly. Reduce retry patience so we detect it fast.
-          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience');
-          mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
+          // Mirroring is active — the H.264 stream continues over WebSocket as long
+          // as the broadcast extension is running. The sender (iOS app) can disconnect
+          // from Cast SDK without stopping the extension. If the extension stops,
+          // the WebSocket will close and stopMirroring() will be called.
+          console.log('[RECEIVER] Sender gone during active mirroring — WebSocket stream continues independently');
         } else {
           // Nothing active — return to splash and wait for next cast command.
           // Do NOT call context.stop() — keep the receiver alive so the user
