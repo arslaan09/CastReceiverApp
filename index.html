@@ -478,7 +478,20 @@
         stopAllMedia();
         hideAudioOverlay();
         // serverIP is the iOS device's LAN IP; receiver opens ws://IP:8081
-        if (data.serverIP) startMirroringWS(data.serverIP);
+        let serverIP = data.serverIP;
+        if (!serverIP && data.streamUrl) {
+          try {
+            if (data.streamUrl.startsWith('ws://') || data.streamUrl.startsWith('http://')) {
+              const url = new URL(data.streamUrl);
+              serverIP = url.hostname;
+            } else {
+              serverIP = data.streamUrl;
+            }
+          } catch (e) {
+            serverIP = data.streamUrl;
+          }
+        }
+        if (serverIP) startMirroringWS(serverIP);
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
