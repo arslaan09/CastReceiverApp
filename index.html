@@ -169,8 +169,17 @@
     }
 
     @keyframes glow-pulse {
-      0%, 100% { transform: scale(1); opacity: 0.6; }
-      50% { transform: scale(1.15); opacity: 1; }
+
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 0.6;
+      }
+
+      50% {
+        transform: scale(1.15);
+        opacity: 1;
+      }
     }
 
     /* Vinyl disc */
@@ -179,15 +188,15 @@
       width: 280px;
       height: 280px;
       border-radius: 50%;
-      background: 
+      background:
         radial-gradient(circle at center, #1a1a2e 15%, transparent 16%),
-        radial-gradient(circle at center, transparent 30%, rgba(255,255,255,0.03) 31%, transparent 32%),
-        radial-gradient(circle at center, transparent 45%, rgba(255,255,255,0.03) 46%, transparent 47%),
-        radial-gradient(circle at center, transparent 60%, rgba(255,255,255,0.03) 61%, transparent 62%),
-        radial-gradient(circle at center, transparent 75%, rgba(255,255,255,0.03) 76%, transparent 77%),
+        radial-gradient(circle at center, transparent 30%, rgba(255, 255, 255, 0.03) 31%, transparent 32%),
+        radial-gradient(circle at center, transparent 45%, rgba(255, 255, 255, 0.03) 46%, transparent 47%),
+        radial-gradient(circle at center, transparent 60%, rgba(255, 255, 255, 0.03) 61%, transparent 62%),
+        radial-gradient(circle at center, transparent 75%, rgba(255, 255, 255, 0.03) 76%, transparent 77%),
         linear-gradient(135deg, #2d2d44 0%, #1a1a2e 100%);
       box-shadow: 0 0 60px rgba(102, 126, 234, 0.2),
-                  inset 0 0 30px rgba(0, 0, 0, 0.5);
+        inset 0 0 30px rgba(0, 0, 0, 0.5);
       animation: spin-disc 8s linear infinite;
     }
 
@@ -196,8 +205,13 @@
     }
 
     @keyframes spin-disc {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
+      from {
+        transform: rotate(0deg);
+      }
+
+      to {
+        transform: rotate(360deg);
+      }
     }
 
     /* Center label on disc */
@@ -266,23 +280,61 @@
       height: 8px !important;
     }
 
-    .eq-bar:nth-child(1) { animation-delay: 0s; }
-    .eq-bar:nth-child(2) { animation-delay: 0.15s; }
-    .eq-bar:nth-child(3) { animation-delay: 0.3s; }
-    .eq-bar:nth-child(4) { animation-delay: 0.45s; }
-    .eq-bar:nth-child(5) { animation-delay: 0.6s; }
-    .eq-bar:nth-child(6) { animation-delay: 0.75s; }
-    .eq-bar:nth-child(7) { animation-delay: 0.9s; }
-    .eq-bar:nth-child(8) { animation-delay: 0.2s; }
-    .eq-bar:nth-child(9) { animation-delay: 0.5s; }
-
-    @keyframes eq-bounce {
-      0%, 100% { height: 8px; }
-      25% { height: 35px; }
-      50% { height: 18px; }
-      75% { height: 45px; }
+    .eq-bar:nth-child(1) {
+      animation-delay: 0s;
     }
 
+    .eq-bar:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    .eq-bar:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+
+    .eq-bar:nth-child(4) {
+      animation-delay: 0.45s;
+    }
+
+    .eq-bar:nth-child(5) {
+      animation-delay: 0.6s;
+    }
+
+    .eq-bar:nth-child(6) {
+      animation-delay: 0.75s;
+    }
+
+    .eq-bar:nth-child(7) {
+      animation-delay: 0.9s;
+    }
+
+    .eq-bar:nth-child(8) {
+      animation-delay: 0.2s;
+    }
+
+    .eq-bar:nth-child(9) {
+      animation-delay: 0.5s;
+    }
+
+    @keyframes eq-bounce {
+
+      0%,
+      100% {
+        height: 8px;
+      }
+
+      25% {
+        height: 35px;
+      }
+
+      50% {
+        height: 18px;
+      }
+
+      75% {
+        height: 45px;
+      }
+    }
   </style>
 </head>
 
@@ -309,7 +361,7 @@
       <div class="audio-disc" id="audioDisc">
         <div class="audio-disc-center">
           <svg viewBox="0 0 24 24">
-            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
           </svg>
         </div>
       </div>
@@ -588,7 +640,7 @@
 
       var fetchUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
       fetch(fetchUrl, { signal: _audioAbort.signal })
-        .then(function(response) {
+        .then(function (response) {
           if (!response.ok) throw new Error('HTTP ' + response.status);
           if (!response.body) throw new Error('ReadableStream not supported');
           console.log('[RECEIVER] Audio stream connected');
@@ -596,7 +648,7 @@
           var reader = response.body.getReader();
           processAudioStream(reader);
         })
-        .catch(function(err) {
+        .catch(function (err) {
           if (err.name === 'AbortError') return;
           console.warn('[RECEIVER] Audio fetch error: ' + err);
           retryAudioConnection();
@@ -612,7 +664,7 @@
       }
       var delay = Math.min(5000, 1000 * _audioRetryCount);
       console.log('[RECEIVER] Audio retry #' + _audioRetryCount + ' in ' + delay + 'ms');
-      _audioRetryTimer = setTimeout(function() {
+      _audioRetryTimer = setTimeout(function () {
         if (_currentAudioUrl) attemptAudioConnection(_currentAudioUrl);
       }, delay);
     }
@@ -623,7 +675,7 @@
       var sampleRate = 48000;
 
       function pump() {
-        reader.read().then(function(result) {
+        reader.read().then(function (result) {
           if (result.done) {
             console.log('[RECEIVER] Audio stream ended');
             retryAudioConnection();
@@ -657,7 +709,7 @@
 
           enqueuePCM(chunk);
           pump();
-        }).catch(function(err) {
+        }).catch(function (err) {
           if (err.name === 'AbortError') return;
           console.warn('[RECEIVER] Audio stream read error: ' + err);
           retryAudioConnection();
@@ -667,7 +719,7 @@
     }
 
     function initWebAudio(sampleRate) {
-      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} }
+      if (_audioCtx) { try { _audioCtx.close(); } catch (e) { } }
       if (_audioScriptNode) { _audioScriptNode.disconnect(); _audioScriptNode = null; }
       _pcmQueue = [];
 
@@ -675,7 +727,7 @@
 
       // 4096 frames buffer ~ 85ms at 48kHz — low enough latency for mirroring
       _audioScriptNode = _audioCtx.createScriptProcessor(4096, 0, _audioChannels);
-      _audioScriptNode.onaudioprocess = function(e) {
+      _audioScriptNode.onaudioprocess = function (e) {
         var outBuf = e.outputBuffer;
         var frames = outBuf.length;
         var ch = outBuf.numberOfChannels;
@@ -734,7 +786,7 @@
       if (_audioRetryTimer) { clearTimeout(_audioRetryTimer); _audioRetryTimer = null; }
       if (_audioAbort) { _audioAbort.abort(); _audioAbort = null; }
       if (_audioScriptNode) { _audioScriptNode.disconnect(); _audioScriptNode = null; }
-      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} _audioCtx = null; }
+      if (_audioCtx) { try { _audioCtx.close(); } catch (e) { } _audioCtx = null; }
       _pcmQueue = [];
       _audioRetryCount = 0;
       console.log('[RECEIVER] Mirror audio stopped');
@@ -891,7 +943,7 @@
     function startMirroringWS(serverIP) {
       // Prevent duplicate start if already connected/connecting to the same IP
       if (isMirroringActive && mirrorServerIP === serverIP &&
-          mirrorWS && mirrorWS.readyState <= 1 /* CONNECTING or OPEN */) {
+        mirrorWS && mirrorWS.readyState <= 1 /* CONNECTING or OPEN */) {
         console.log('[RECEIVER] Already connecting/connected to ' + serverIP + ' — ignoring duplicate start');
         return;
       }
@@ -919,7 +971,7 @@
       }
       mirrorWS.binaryType = 'arraybuffer';
 
-      mirrorWS.onopen = function() {
+      mirrorWS.onopen = function () {
         console.log('[RECEIVER] Mirror WS open');
         statusText.textContent = 'Connected — starting stream...';
         statusDot.classList.add('connected');
@@ -933,41 +985,41 @@
             clearBuffer: true,
             fps: 30,
             debug: false,
-            onReady: function() {
+            onReady: function () {
               statusText.textContent = 'Mirroring Screen';
               videoPlayer.muted = false;
-              videoPlayer.play().catch(function() {});
+              videoPlayer.play().catch(function () { });
             },
-            onError: function(d) { console.warn('[RECEIVER] jmuxer error', d); }
+            onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
           });
         } catch (e) {
           console.error('[RECEIVER] JMuxer init failed:', e);
         }
 
         // Aggressive live-edge: keep playback within 300ms of live, check every 200ms
-        mirrorLiveEdge = setInterval(function() {
+        mirrorLiveEdge = setInterval(function () {
           if (videoPlayer.buffered.length > 0) {
             var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             if (end - videoPlayer.currentTime > 0.3) videoPlayer.currentTime = end - 0.03;
           }
-          if (videoPlayer.paused && isMirroringActive) videoPlayer.play().catch(function() {});
+          if (videoPlayer.paused && isMirroringActive) videoPlayer.play().catch(function () { });
         }, 200);
       };
 
-      mirrorWS.onmessage = function(event) {
+      mirrorWS.onmessage = function (event) {
         var buf = new Uint8Array(event.data);
         if (!buf.length || !mirrorJmuxer) return;
         if (buf[0] === 0x05) return; // reserved for future AAC
         mirrorJmuxer.feed({ video: buf, duration: 33 });
       };
 
-      mirrorWS.onerror = function(e) {
+      mirrorWS.onerror = function (e) {
         console.warn('[RECEIVER] Mirror WS error — will retry', e);
         statusText.textContent = 'Reconnecting...';
         statusDot.classList.remove('connected');
       };
 
-      mirrorWS.onclose = function() {
+      mirrorWS.onclose = function () {
         statusDot.classList.remove('connected');
         if (isMirroringActive) {
           statusText.textContent = 'Reconnecting...';
@@ -978,16 +1030,16 @@
 
     function scheduleMirrorReconnect(serverIP) {
       clearMirrorReconnectTimer();
-      mirrorReconnectTimer = setTimeout(function() {
+      mirrorReconnectTimer = setTimeout(function () {
         if (!isMirroringActive) return;
         console.log('[RECEIVER] Retrying mirror WS for ' + serverIP);
         // Reset WS state before reconnecting
         if (mirrorWS) {
           mirrorWS.onclose = null; mirrorWS.onerror = null; mirrorWS.onmessage = null; mirrorWS.onopen = null;
-          try { mirrorWS.close(); } catch(e) {}
+          try { mirrorWS.close(); } catch (e) { }
           mirrorWS = null;
         }
-        if (mirrorJmuxer) { try { mirrorJmuxer.destroy(); } catch(e) {} mirrorJmuxer = null; }
+        if (mirrorJmuxer) { try { mirrorJmuxer.destroy(); } catch (e) { } mirrorJmuxer = null; }
         if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
         // Re-enter startMirroringWS directly (bypass duplicate guard since mirrorWS is null)
         isMirroringActive = false; // allow restart
@@ -1006,9 +1058,9 @@
       if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
       if (mirrorWS) {
         mirrorWS.onclose = null; mirrorWS.onerror = null; mirrorWS.onmessage = null; mirrorWS.onopen = null;
-        try { mirrorWS.close(); } catch(e) {} mirrorWS = null;
+        try { mirrorWS.close(); } catch (e) { } mirrorWS = null;
       }
-      if (mirrorJmuxer) { try { mirrorJmuxer.destroy(); } catch(e) {} mirrorJmuxer = null; }
+      if (mirrorJmuxer) { try { mirrorJmuxer.destroy(); } catch (e) { } mirrorJmuxer = null; }
       videoPlayer.muted = true;
       videoPlayer.style.display = 'none';
     }
