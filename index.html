@@ -1123,8 +1123,33 @@
       }, 2500);
     }
 
-    function clearMirrorReconnectTimer() {
-      if (mirrorReconnectTimer) { clearTimeout(mirrorReconnectTimer); mirrorReconnectTimer = null; }
+    function resetMirrorJmuxer() {
+      if (isMirroringActive && mirrorWS && mirrorWS.readyState === WebSocket.OPEN) {
+        console.log('[RECEIVER] Resetting jmuxer for orientation change');
+        if (mirrorJmuxer) {
+          try { mirrorJmuxer.destroy(); } catch (e) { }
+          mirrorJmuxer = null;
+        }
+        
+        try {
+          mirrorJmuxer = new JMuxer({
+            node: 'video-player',
+            mode: 'video',
+            flushingTime: 0,
+            clearBuffer: true,
+            fps: 30,
+            debug: false,
+            onReady: function () {
+              console.log('[RECEIVER] Re-created jmuxer is ready');
+              videoPlayer.muted = false;
+              videoPlayer.play().catch(function () { });
+            },
+            onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
+          });
+        } catch (e) {
+          console.error('[RECEIVER] jmuxer re-init failed:', e);
+        }
+      }
     }
 
     function cleanupMirroringConnection() {
