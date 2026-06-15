@@ -579,6 +579,39 @@
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
 
+      if (data.type === 'ORIENTATION_CHANGED') {
+        var orientation = data.orientation;
+        console.log('[RECEIVER] ORIENTATION_CHANGED message received: ' + orientation);
+        
+        if (isMirroringActive && mirrorWS && mirrorWS.readyState === WebSocket.OPEN) {
+          console.log('[RECEIVER] Resetting jmuxer for orientation change');
+          
+          if (mirrorJmuxer) {
+            try { mirrorJmuxer.destroy(); } catch (e) { }
+            mirrorJmuxer = null;
+          }
+          
+          try {
+            mirrorJmuxer = new JMuxer({
+              node: 'video-player',
+              mode: 'video',
+              flushingTime: 0,
+              clearBuffer: true,
+              fps: 30,
+              debug: false,
+              onReady: function () {
+                console.log('[RECEIVER] Re-created jmuxer is ready');
+                videoPlayer.muted = false;
+                videoPlayer.play().catch(function () { });
+              },
+              onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
+            });
+          } catch (e) {
+            console.error('[RECEIVER] jmuxer re-init failed:', e);
+          }
+        }
+      }
+
       // Live app-audio stream (game/movie system audio from the iOS device)
       if (data.type === 'START_AUDIO_STREAM') {
         if (data.audioUrl) startMirrorAudio(data.audioUrl);
