@@ -418,16 +418,6 @@
       if (w === 0 || h === 0) return;
       
       console.log('[RECEIVER] videoPlayer resize: ' + w + 'x' + h);
-      
-      if (lastMirrorWidth !== 0 && (lastMirrorWidth !== w || lastMirrorHeight !== h)) {
-        if (wasResetByOrientation) {
-          console.log('[RECEIVER] Resize triggered but jmuxer was already reset by orientation packet — skipping duplicate reset');
-          wasResetByOrientation = false;
-        } else {
-          console.log('[RECEIVER] H.264 stream resolution changed from ' + lastMirrorWidth + 'x' + lastMirrorHeight + ' to ' + w + 'x' + h + ' — resetting jmuxer to prevent green glitch');
-          resetMirrorJmuxer();
-        }
-      }
       lastMirrorWidth = w;
       lastMirrorHeight = h;
     });
