@@ -420,32 +420,12 @@
       console.log('[RECEIVER] videoPlayer resize: ' + w + 'x' + h);
       
       if (lastMirrorWidth !== 0 && (lastMirrorWidth !== w || lastMirrorHeight !== h)) {
-        console.log('[RECEIVER] H.264 stream resolution changed from ' + lastMirrorWidth + 'x' + lastMirrorHeight + ' to ' + w + 'x' + h + ' — resetting jmuxer to prevent green glitch');
-        
-        if (isMirroringActive && mirrorWS && mirrorWS.readyState === WebSocket.OPEN) {
-          if (mirrorJmuxer) {
-            try { mirrorJmuxer.destroy(); } catch (e) { }
-            mirrorJmuxer = null;
-          }
-          
-          try {
-            mirrorJmuxer = new JMuxer({
-              node: 'video-player',
-              mode: 'video',
-              flushingTime: 0,
-              clearBuffer: true,
-              fps: 30,
-              debug: false,
-              onReady: function () {
-                console.log('[RECEIVER] Re-created jmuxer is ready');
-                videoPlayer.muted = false;
-                videoPlayer.play().catch(function () { });
-              },
-              onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
-            });
-          } catch (e) {
-            console.error('[RECEIVER] jmuxer re-init failed:', e);
-          }
+        if (wasResetByOrientation) {
+          console.log('[RECEIVER] Resize triggered but jmuxer was already reset by orientation packet — skipping duplicate reset');
+          wasResetByOrientation = false;
+        } else {
+          console.log('[RECEIVER] H.264 stream resolution changed from ' + lastMirrorWidth + 'x' + lastMirrorHeight + ' to ' + w + 'x' + h + ' — resetting jmuxer to prevent green glitch');
+          resetMirrorJmuxer();
         }
       }
       lastMirrorWidth = w;
@@ -582,6 +562,7 @@
       if (data.type === 'ORIENTATION_CHANGED') {
         var orientation = data.orientation;
         console.log('[RECEIVER] ORIENTATION_CHANGED message received: ' + orientation);
+        wasResetByOrientation = true;
         resetMirrorJmuxer();
       }
 
@@ -979,6 +960,7 @@
     var mirrorReconnectTimer = null;
     var lastMirrorWidth = 0;
     var lastMirrorHeight = 0;
+    var wasResetByOrientation = false;
 
     function clearMirrorReconnectTimer() {
       if (mirrorReconnectTimer) {
@@ -1067,6 +1049,7 @@
         if (!buf.length) return;
         if (buf[0] === 0xFE) {
           console.log('[RECEIVER] WebSocket orientation packet received: ' + buf[1]);
+          wasResetByOrientation = true;
           resetMirrorJmuxer();
           return;
         }
