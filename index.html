@@ -582,34 +582,7 @@
       if (data.type === 'ORIENTATION_CHANGED') {
         var orientation = data.orientation;
         console.log('[RECEIVER] ORIENTATION_CHANGED message received: ' + orientation);
-        
-        if (isMirroringActive && mirrorWS && mirrorWS.readyState === WebSocket.OPEN) {
-          console.log('[RECEIVER] Resetting jmuxer for orientation change');
-          
-          if (mirrorJmuxer) {
-            try { mirrorJmuxer.destroy(); } catch (e) { }
-            mirrorJmuxer = null;
-          }
-          
-          try {
-            mirrorJmuxer = new JMuxer({
-              node: 'video-player',
-              mode: 'video',
-              flushingTime: 0,
-              clearBuffer: true,
-              fps: 30,
-              debug: false,
-              onReady: function () {
-                console.log('[RECEIVER] Re-created jmuxer is ready');
-                videoPlayer.muted = false;
-                videoPlayer.play().catch(function () { });
-              },
-              onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
-            });
-          } catch (e) {
-            console.error('[RECEIVER] jmuxer re-init failed:', e);
-          }
-        }
+        resetMirrorJmuxer();
       }
 
       // Live app-audio stream (game/movie system audio from the iOS device)
@@ -1007,6 +980,13 @@
     var lastMirrorWidth = 0;
     var lastMirrorHeight = 0;
 
+    function clearMirrorReconnectTimer() {
+      if (mirrorReconnectTimer) {
+        clearTimeout(mirrorReconnectTimer);
+        mirrorReconnectTimer = null;
+      }
+    }
+
     // Accepts either a raw IP or a full URL (e.g. http://IP:10100/mjpeg or ws://IP:10101) — extracts IP
     function startMirroring(url) {
       var ip = url || '';
@@ -1084,8 +1064,14 @@
 
       mirrorWS.onmessage = function (event) {
         var buf = new Uint8Array(event.data);
-        if (!buf.length || !mirrorJmuxer) return;
+        if (!buf.length) return;
+        if (buf[0] === 0xFE) {
+          console.log('[RECEIVER] WebSocket orientation packet received: ' + buf[1]);
+          resetMirrorJmuxer();
+          return;
+        }
         if (buf[0] === 0x05) return; // reserved for future AAC
+        if (!mirrorJmuxer) return;
         mirrorJmuxer.feed({ video: buf, duration: 33 });
       };
 
