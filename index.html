@@ -3,7 +3,10 @@
 
 <head>
   <meta charset="UTF-8">
-  <title>Screen Mirror Receiver</title>
+  <title>Screen Mirroring for TV</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
   <style>
@@ -17,11 +20,73 @@
     body {
       width: 100%;
       height: 100%;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #090a12;
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       overflow: hidden;
+      color: #f8fafc;
+      position: relative;
     }
 
+    /* ── Background Moving Orbs ── */
+    .bg-orb {
+      position: absolute;
+      width: 750px;
+      height: 750px;
+      border-radius: 50%;
+      filter: blur(150px);
+      opacity: 0.16;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .bg-orb-1 {
+      background: radial-gradient(circle, #6366f1 0%, rgba(99, 102, 241, 0) 70%);
+      top: -250px;
+      left: -250px;
+      animation: drift-slow 28s infinite alternate ease-in-out;
+    }
+
+    .bg-orb-2 {
+      background: radial-gradient(circle, #d946ef 0%, rgba(217, 70, 239, 0) 70%);
+      bottom: -250px;
+      right: -250px;
+      animation: drift-slow 34s infinite alternate-reverse ease-in-out;
+    }
+
+    .bg-orb-3 {
+      background: radial-gradient(circle, #06b6d4 0%, rgba(6, 182, 212, 0) 70%);
+      top: 40%;
+      left: 50%;
+      width: 550px;
+      height: 550px;
+      transform: translate(-50%, -50%);
+      animation: pulse-slow 18s infinite alternate ease-in-out;
+    }
+
+    @keyframes drift-slow {
+      0% {
+        transform: translate(0, 0) scale(1);
+      }
+      50% {
+        transform: translate(90px, 70px) scale(1.1);
+      }
+      100% {
+        transform: translate(-50px, 130px) scale(0.95);
+      }
+    }
+
+    @keyframes pulse-slow {
+      0%, 100% {
+        opacity: 0.08;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      50% {
+        opacity: 0.22;
+        transform: translate(-50%, -50%) scale(1.15);
+      }
+    }
+
+    /* ── Main Layout Container ── */
     #splash {
       position: absolute;
       top: 0;
@@ -32,91 +97,182 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      color: white;
       z-index: 10;
+      padding: 20px;
     }
 
-    .logo {
-      width: 120px;
-      height: 120px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      border-radius: 30px;
+    /* ── Glassmorphic card ── */
+    .glass-card {
+      background: rgba(15, 23, 42, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 36px;
+      padding: 55px 75px;
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      box-shadow: 
+        0 25px 55px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      max-width: 650px;
+      width: 100%;
+      transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+      animation: fade-in-up 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes fade-in-up {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ── TV Logo & Glowing Concentric Rings ── */
+    .logo-container {
+      position: relative;
+      margin-bottom: 35px;
       display: flex;
       justify-content: center;
       align-items: center;
-      margin-bottom: 40px;
-      box-shadow: 0 20px 40px rgba(102, 126, 234, 0.3);
-      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .logo-glow-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 2px dashed rgba(99, 102, 241, 0.2);
+      animation: rotate-ring 22s linear infinite;
+    }
+
+    .ring-1 {
+      width: 150px;
+      height: 150px;
+    }
+
+    .ring-2 {
+      width: 180px;
+      height: 180px;
+      border: 1px solid rgba(217, 70, 239, 0.12);
+      animation: rotate-ring-reverse 28s linear infinite;
+    }
+
+    @keyframes rotate-ring {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes rotate-ring-reverse {
+      from { transform: rotate(360deg); }
+      to { transform: rotate(0deg); }
+    }
+
+    .logo {
+      width: 105px;
+      height: 105px;
+      background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+      border-radius: 28px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 
+        0 15px 35px rgba(99, 102, 241, 0.38),
+        0 0 0 8px rgba(99, 102, 241, 0.08);
+      z-index: 2;
+      animation: pulse-logo 2.5s ease-in-out infinite;
     }
 
     .logo svg {
-      width: 60px;
-      height: 60px;
+      width: 52px;
+      height: 52px;
       fill: white;
     }
 
-    @keyframes pulse {
-
-      0%,
-      100% {
+    @keyframes pulse-logo {
+      0%, 100% {
         transform: scale(1);
+        box-shadow: 
+          0 15px 35px rgba(99, 102, 241, 0.38),
+          0 0 0 8px rgba(99, 102, 241, 0.08);
       }
-
       50% {
         transform: scale(1.05);
+        box-shadow: 
+          0 20px 40px rgba(99, 102, 241, 0.48),
+          0 0 0 14px rgba(99, 102, 241, 0.14);
       }
     }
 
+    /* ── Typography & Headings ── */
     .title {
-      font-size: 48px;
-      font-weight: 700;
-      margin-bottom: 15px;
+      font-size: 38px;
+      font-weight: 800;
+      letter-spacing: -0.8px;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #ffffff 40%, #c7d2fe 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
     }
 
     .subtitle {
-      font-size: 24px;
-      opacity: 0.8;
-      margin-bottom: 50px;
+      font-size: 19px;
+      color: #94a3b8;
+      margin-bottom: 40px;
+      font-weight: 400;
+      line-height: 1.5;
     }
 
+    /* ── Status Bar / Container ── */
     .status-container {
       display: flex;
       align-items: center;
-      gap: 15px;
-      padding: 20px 40px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 50px;
-      backdrop-filter: blur(10px);
+      gap: 12px;
+      padding: 14px 28px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 100px;
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05);
+      transition: all 0.3s ease;
     }
 
     .status-dot {
-      width: 12px;
-      height: 12px;
-      background: #fbbf24;
+      width: 10px;
+      height: 10px;
+      background: #f59e0b; /* Amber */
       border-radius: 50%;
-      animation: blink 1.5s ease-in-out infinite;
+      box-shadow: 0 0 12px #f59e0b;
+      animation: blink-dot 1.8s infinite ease-in-out;
     }
 
     .status-dot.connected {
-      background: #4ade80;
+      background: #10b981; /* Emerald */
+      box-shadow: 0 0 12px #10b981;
     }
 
-    @keyframes blink {
-
-      0%,
-      100% {
+    @keyframes blink-dot {
+      0%, 100% {
         opacity: 1;
+        transform: scale(1);
       }
-
       50% {
         opacity: 0.4;
+        transform: scale(0.9);
       }
     }
 
     .status-text {
-      font-size: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #cbd5e1;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
     }
 
+    /* ── Video Player ── */
     #video-player {
       position: absolute;
       top: 0;
@@ -133,14 +289,14 @@
       display: none !important;
     }
 
-    /* ── Audio Playback Overlay ──────────────────────────────────── */
+    /* ── Audio Playback Overlay ── */
     #audio-overlay {
       position: absolute;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
-      background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+      background: radial-gradient(circle at center, #111827 0%, #030712 100%);
       display: none;
       flex-direction: column;
       justify-content: center;
@@ -151,53 +307,52 @@
 
     .audio-disc-container {
       position: relative;
-      width: 280px;
-      height: 280px;
-      margin-bottom: 50px;
+      width: 290px;
+      height: 290px;
+      margin-bottom: 40px;
     }
 
     /* Outer glow ring */
     .audio-disc-glow {
       position: absolute;
-      top: -20px;
-      left: -20px;
-      width: 320px;
-      height: 320px;
+      top: -25px;
+      left: -25px;
+      width: 340px;
+      height: 340px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(102, 126, 234, 0.3) 0%, transparent 70%);
-      animation: glow-pulse 3s ease-in-out infinite;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.25) 0%, transparent 70%);
+      animation: glow-pulse 3.5s ease-in-out infinite;
     }
 
     @keyframes glow-pulse {
-
-      0%,
-      100% {
-        transform: scale(1);
-        opacity: 0.6;
+      0%, 100% {
+        transform: scale(0.98);
+        opacity: 0.5;
       }
-
       50% {
-        transform: scale(1.15);
-        opacity: 1;
+        transform: scale(1.08);
+        opacity: 0.9;
       }
     }
 
     /* Vinyl disc */
     .audio-disc {
       position: relative;
-      width: 280px;
-      height: 280px;
+      width: 290px;
+      height: 290px;
       border-radius: 50%;
       background:
-        radial-gradient(circle at center, #1a1a2e 15%, transparent 16%),
-        radial-gradient(circle at center, transparent 30%, rgba(255, 255, 255, 0.03) 31%, transparent 32%),
-        radial-gradient(circle at center, transparent 45%, rgba(255, 255, 255, 0.03) 46%, transparent 47%),
-        radial-gradient(circle at center, transparent 60%, rgba(255, 255, 255, 0.03) 61%, transparent 62%),
-        radial-gradient(circle at center, transparent 75%, rgba(255, 255, 255, 0.03) 76%, transparent 77%),
-        linear-gradient(135deg, #2d2d44 0%, #1a1a2e 100%);
-      box-shadow: 0 0 60px rgba(102, 126, 234, 0.2),
-        inset 0 0 30px rgba(0, 0, 0, 0.5);
-      animation: spin-disc 8s linear infinite;
+        radial-gradient(circle at center, #090a12 15%, transparent 16%),
+        radial-gradient(circle at center, transparent 30%, rgba(255, 255, 255, 0.02) 31%, transparent 32%),
+        radial-gradient(circle at center, transparent 45%, rgba(255, 255, 255, 0.02) 46%, transparent 47%),
+        radial-gradient(circle at center, transparent 60%, rgba(255, 255, 255, 0.02) 61%, transparent 62%),
+        radial-gradient(circle at center, transparent 75%, rgba(255, 255, 255, 0.02) 76%, transparent 77%),
+        linear-gradient(135deg, #1f2937 0%, #030712 100%);
+      box-shadow: 
+        0 15px 45px rgba(0, 0, 0, 0.5),
+        0 0 50px rgba(99, 102, 241, 0.15),
+        inset 0 0 20px rgba(0, 0, 0, 0.7);
+      animation: spin-disc 10s linear infinite;
     }
 
     .audio-disc.paused {
@@ -205,13 +360,8 @@
     }
 
     @keyframes spin-disc {
-      from {
-        transform: rotate(0deg);
-      }
-
-      to {
-        transform: rotate(360deg);
-      }
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
 
     /* Center label on disc */
@@ -220,59 +370,64 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 90px;
-      height: 90px;
+      width: 96px;
+      height: 96px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #6366f1 0%, #d946ef 100%);
       display: flex;
       justify-content: center;
       align-items: center;
-      box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+      box-shadow: 
+        0 6px 20px rgba(99, 102, 241, 0.4),
+        inset 0 0 10px rgba(255, 255, 255, 0.2);
     }
 
     .audio-disc-center svg {
-      width: 40px;
-      height: 40px;
+      width: 44px;
+      height: 44px;
       fill: white;
     }
 
     /* Track info */
     .audio-track-info {
       text-align: center;
-      margin-bottom: 40px;
+      margin-bottom: 35px;
     }
 
     .audio-now-playing {
-      font-size: 18px;
+      font-size: 14px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 4px;
-      color: rgba(255, 255, 255, 0.5);
+      letter-spacing: 5px;
+      color: rgba(255, 255, 255, 0.4);
       margin-bottom: 12px;
     }
 
     .audio-track-title {
-      font-size: 28px;
-      font-weight: 600;
+      font-size: 26px;
+      font-weight: 700;
       color: white;
       max-width: 600px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      letter-spacing: -0.5px;
     }
 
     /* Equalizer bars */
     .audio-equalizer {
       display: flex;
       align-items: flex-end;
-      gap: 6px;
-      height: 50px;
+      gap: 7px;
+      height: 55px;
     }
 
     .eq-bar {
-      width: 8px;
-      background: linear-gradient(to top, #667eea, #764ba2);
+      width: 7px;
+      background: linear-gradient(to top, #6366f1, #d946ef);
       border-radius: 4px;
       animation: eq-bounce 1.2s ease-in-out infinite;
+      height: 8px;
     }
 
     .eq-bar.paused {
@@ -280,77 +435,48 @@
       height: 8px !important;
     }
 
-    .eq-bar:nth-child(1) {
-      animation-delay: 0s;
-    }
-
-    .eq-bar:nth-child(2) {
-      animation-delay: 0.15s;
-    }
-
-    .eq-bar:nth-child(3) {
-      animation-delay: 0.3s;
-    }
-
-    .eq-bar:nth-child(4) {
-      animation-delay: 0.45s;
-    }
-
-    .eq-bar:nth-child(5) {
-      animation-delay: 0.6s;
-    }
-
-    .eq-bar:nth-child(6) {
-      animation-delay: 0.75s;
-    }
-
-    .eq-bar:nth-child(7) {
-      animation-delay: 0.9s;
-    }
-
-    .eq-bar:nth-child(8) {
-      animation-delay: 0.2s;
-    }
-
-    .eq-bar:nth-child(9) {
-      animation-delay: 0.5s;
-    }
+    .eq-bar:nth-child(1) { animation-delay: 0s; }
+    .eq-bar:nth-child(2) { animation-delay: 0.15s; }
+    .eq-bar:nth-child(3) { animation-delay: 0.3s; }
+    .eq-bar:nth-child(4) { animation-delay: 0.45s; }
+    .eq-bar:nth-child(5) { animation-delay: 0.6s; }
+    .eq-bar:nth-child(6) { animation-delay: 0.75s; }
+    .eq-bar:nth-child(7) { animation-delay: 0.9s; }
+    .eq-bar:nth-child(8) { animation-delay: 0.2s; }
+    .eq-bar:nth-child(9) { animation-delay: 0.5s; }
 
     @keyframes eq-bounce {
-
-      0%,
-      100% {
-        height: 8px;
-      }
-
-      25% {
-        height: 35px;
-      }
-
-      50% {
-        height: 18px;
-      }
-
-      75% {
-        height: 45px;
-      }
+      0%, 100% { height: 8px; }
+      25% { height: 38px; }
+      50% { height: 18px; }
+      75% { height: 48px; }
     }
   </style>
 </head>
 
 <body>
+  <!-- Dynamic background glowing orbs -->
+  <div class="bg-orb bg-orb-1"></div>
+  <div class="bg-orb bg-orb-2"></div>
+  <div class="bg-orb bg-orb-3"></div>
+
   <div id="splash">
-    <div class="logo">
-      <svg viewBox="0 0 24 24">
-        <path
-          d="M21,3H3C1.89,3 1,3.89 1,5V17A2,2 0 0,0 3,19H8V21H16V19H21A2,2 0 0,0 23,17V5C23,3.89 22.1,3 21,3M21,17H3V5H21M16,11L9,15V7" />
-      </svg>
-    </div>
-    <div class="title">Screen Mirroring -Miracast</div>
-    <div class="subtitle" id="connectionMessage">Waiting for connection...</div>
-    <div class="status-container">
-      <div class="status-dot" id="statusDot"></div>
-      <div class="status-text" id="statusText">Ready to receive</div>
+    <div class="glass-card">
+      <div class="logo-container">
+        <div class="logo-glow-ring ring-1"></div>
+        <div class="logo-glow-ring ring-2"></div>
+        <div class="logo">
+          <svg viewBox="0 0 24 24">
+            <path d="M21,3H3C1.89,3 1,3.89 1,5V17A2,2 0 0,0 3,19H8V21H16V19H21A2,2 0 0,0 23,17V5C23,3.89 22.1,3 21,3M21,17H3V5H21M16,11L9,15V7" />
+          </svg>
+        </div>
+      </div>
+      <div class="title">Screen Mirroring for TV</div>
+      <div class="subtitle" id="connectionMessage">Waiting for connection...</div>
+      <div class="status-container">
+        <div class="status-dot" id="statusDot"></div>
+        <div class="status-text" id="statusText">Ready to receive</div>
+      </div>
     </div>
   </div>
 
