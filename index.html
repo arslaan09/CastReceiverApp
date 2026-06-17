@@ -1064,6 +1064,15 @@
     var isMirroringActive = false;
     var mirrorServerIP = '';
     var mirrorWS = null;
+    // JPEG fallback (extension-hosted, survives the host app being killed): after enough
+    // consecutive WS reconnect failures we assume the host app's H.264 relay is gone and
+    // switch to polling the broadcast extension's own MJPEG server directly, while still
+    // retrying the WS in the background so we can switch back to full-quality H.264 the
+    // moment the host app is reachable again.
+    var wsFailureCount = 0;
+    var MAX_WS_FAILURES_BEFORE_FALLBACK = 4; // ~10s of failed WS attempts (4 * 2.5s)
+    var isMjpegFallbackActive = false;
+    var EXTENSION_MJPEG_PORT = 10108;
     var mirrorJmuxer = null;
     var mirrorLiveEdge = null;
     var mirrorReconnectTimer = null;
@@ -1122,6 +1131,9 @@
         statusText.textContent = 'Connected — starting stream...';
         statusDot.classList.add('connected');
         clearMirrorReconnectTimer();
+        // Full-quality H.264 relay is back (host app reachable again) — drop the fallback.
+        wsFailureCount = 0;
+        stopMJPEGFallback();
 
         try {
           mirrorJmuxer = new JMuxer({
@@ -1177,6 +1189,10 @@
 
     function scheduleMirrorReconnect(serverIP) {
       clearMirrorReconnectTimer();
+      wsFailureCount++;
+      if (wsFailureCount >= MAX_WS_FAILURES_BEFORE_FALLBACK && !isMjpegFallbackActive) {
+        startMJPEGFallback(serverIP);
+      }
       mirrorReconnectTimer = setTimeout(function () {
         if (!isMirroringActive) return;
         console.log('[RECEIVER] Retrying mirror WS for ' + serverIP);
@@ -1194,11 +1210,52 @@
       }, 2500);
     }
 
+    // ── JPEG fallback (extension-hosted MJPEG server, survives host app death) ──────
+    var mjpegFallbackRetryTimer = null;
+
+    function startMJPEGFallback(serverIP) {
+      isMjpegFallbackActive = true;
+      console.log('[RECEIVER] WS relay unreachable for a while — falling back to extension MJPEG on :' + EXTENSION_MJPEG_PORT);
+      statusText.textContent = 'Mirroring (limited connection)';
+      videoPlayer.style.display = 'none';
+      mjpegViewer.classList.remove('hidden');
+      loadMJPEGFallbackFrame(serverIP);
+    }
+
+    function loadMJPEGFallbackFrame(serverIP) {
+      if (!isMjpegFallbackActive || !isMirroringActive) return;
+      mjpegViewer.onload = function () {
+        if (!isMjpegFallbackActive) return;
+        statusDot.classList.add('connected');
+      };
+      mjpegViewer.onerror = function () {
+        if (!isMjpegFallbackActive) return;
+        // Extension server not reachable yet either — keep retrying quietly while the
+        // WS reconnect loop (already running) keeps trying to recover the full pipeline.
+        if (mjpegFallbackRetryTimer) clearTimeout(mjpegFallbackRetryTimer);
+        mjpegFallbackRetryTimer = setTimeout(function () { loadMJPEGFallbackFrame(serverIP); }, 1500);
+      };
+      mjpegViewer.src = 'http://' + serverIP + ':' + EXTENSION_MJPEG_PORT + '/mjpeg?t=' + Date.now();
+    }
+
+    function stopMJPEGFallback() {
+      if (!isMjpegFallbackActive) return;
+      isMjpegFallbackActive = false;
+      if (mjpegFallbackRetryTimer) { clearTimeout(mjpegFallbackRetryTimer); mjpegFallbackRetryTimer = null; }
+      mjpegViewer.onload = null;
+      mjpegViewer.onerror = null;
+      mjpegViewer.src = '';
+      mjpegViewer.classList.add('hidden');
+      videoPlayer.style.display = 'block';
+    }
+
 
 
     function cleanupMirroringConnection() {
       isMirroringActive = false;
       mirrorServerIP = '';
+      wsFailureCount = 0;
+      stopMJPEGFallback();
       clearMirrorReconnectTimer();
       if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
       if (mirrorWS) {
