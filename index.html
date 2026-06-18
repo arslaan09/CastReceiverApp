@@ -1078,6 +1078,14 @@
     var mirrorReconnectTimer = null;
     var lastMirrorWidth = 0;
     var lastMirrorHeight = 0;
+    // Application-level dead-connection watchdog: a killed host app's TCP socket isn't
+    // always promptly noticed by the native WebSocket onclose/onerror events (no app-level
+    // heartbeat is sent for TV mode, so a connection can sit "open" from this side's
+    // perspective with nothing arriving). Track when the last video frame arrived and
+    // force-close the socket ourselves if it goes quiet for too long, instead of waiting
+    // on a native close event that may never come.
+    var mirrorFrameWatchdog = null;
+    var MIRROR_STALE_TIMEOUT_MS = 2500;
 
     function clearMirrorReconnectTimer() {
       if (mirrorReconnectTimer) {
@@ -1142,9 +1150,9 @@
           mirrorJmuxer = new JMuxer({
             node: 'video-player',
             mode: 'video',
-            flushingTime: 0,
+            flushingTime: 50,
             clearBuffer: true,
-            fps: 30,
+            fps: 60,
             debug: false,
             onReady: function () {
               statusText.textContent = 'Mirroring Screen';
@@ -1157,16 +1165,40 @@
           console.error('[RECEIVER] JMuxer init failed:', e);
         }
 
-        // Aggressive live-edge: keep playback close to live, check every 200ms. Threshold
-        // relaxed slightly from 300ms to 450ms to cut down how often we force-seek (each
-        // seek is a visible micro-stutter) — still comfortably sub-second latency.
+        // Live-edge correction without visible stutter: a hard currentTime jump is itself
+        // a discontinuity the eye catches as a stutter, especially on a TV's hardware
+        // decode pipeline. Instead, nudge playbackRate up slightly while behind (smoothly
+        // catches up over ~1-2s, imperceptible) and only fall back to a hard seek for a
+        // genuinely large stall (>1.5s) where a smooth catch-up would take too long.
         mirrorLiveEdge = setInterval(function () {
           if (videoPlayer.buffered.length > 0) {
             var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-            if (end - videoPlayer.currentTime > 0.45) videoPlayer.currentTime = end - 0.05;
+            var drift = end - videoPlayer.currentTime;
+            if (drift > 1.5) {
+              videoPlayer.currentTime = end - 0.05;
+              videoPlayer.playbackRate = 1.0;
+            } else if (drift > 0.35) {
+              videoPlayer.playbackRate = 1.08;
+            } else if (drift < 0.12) {
+              videoPlayer.playbackRate = 1.0;
+            }
           }
           if (videoPlayer.paused && isMirroringActive) videoPlayer.play().catch(function () { });
         }, 200);
+
+        // Dead-connection watchdog (see MIRROR_STALE_TIMEOUT_MS declaration above): if no
+        // video frame has arrived for too long, don't wait on the native WebSocket close
+        // event — force the issue ourselves so the existing reconnect/fallback chain kicks
+        // in promptly.
+        if (mirrorFrameWatchdog) clearInterval(mirrorFrameWatchdog);
+        mirrorFrameWatchdog = setInterval(function () {
+          if (!isMirroringActive || !mirrorWS) return;
+          if (lastVideoFrameWallTime > 0 && (performance.now() - lastVideoFrameWallTime) > MIRROR_STALE_TIMEOUT_MS) {
+            console.log('[RECEIVER] No frames for ' + MIRROR_STALE_TIMEOUT_MS + 'ms — treating connection as dead');
+            lastVideoFrameWallTime = 0;
+            try { mirrorWS.close(); } catch (e) { }
+          }
+        }, 1000);
       };
 
       // Tracks wall-clock time between incoming video frames so we can feed jmuxer the
@@ -1295,6 +1327,7 @@
       stopMJPEGFallback();
       clearMirrorReconnectTimer();
       if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
+      if (mirrorFrameWatchdog) { clearInterval(mirrorFrameWatchdog); mirrorFrameWatchdog = null; }
       if (mirrorWS) {
         mirrorWS.onclose = null; mirrorWS.onerror = null; mirrorWS.onmessage = null; mirrorWS.onopen = null;
         try { mirrorWS.close(); } catch (e) { } mirrorWS = null;
@@ -1304,6 +1337,7 @@
       lastMirrorHeight = 0;
       videoPlayer.muted = true;
       videoPlayer.style.display = 'none';
+      videoPlayer.playbackRate = 1.0;
     }
 
     function stopMirroring() {
