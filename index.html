@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jmuxer@2.0.4/dist/jmuxer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -670,7 +671,13 @@
         stopAllMedia();
         hideAudioOverlay();
         stopMirrorAudio();  // stop any previous audio stream
-        if (data.streamUrl) startMirroring(data.streamUrl);
+        if (data.streamUrl) {
+          if (data.streamUrl.indexOf('.m3u8') !== -1) {
+            startMirroringHLS(data.streamUrl);
+          } else {
+            startMirroring(data.streamUrl);
+          }
+        }
       }
 
       if (data.type === 'STOP_MIRRORING') stopMirroring();
@@ -1060,8 +1067,9 @@
       statusText.textContent = 'Showing Image';
     }
 
-    // ── H.264 mirroring via WebSocket (port 10101) + jmuxer ─────────────
+    // ── H.264 mirroring via HLS / WebSocket (port 10101) + jmuxer ─────────────
     var isMirroringActive = false;
+    var hlsPlayer = null;
     var mirrorServerIP = '';
     var mirrorWS = null;
     // JPEG fallback (extension-hosted, survives the host app being killed): after enough
@@ -1083,6 +1091,73 @@
       if (mirrorReconnectTimer) {
         clearTimeout(mirrorReconnectTimer);
         mirrorReconnectTimer = null;
+      }
+    }
+
+    function getIPFromURL(url) {
+      var m = url.match(/^(?:https?):\/\/([^:\/?#]+)/);
+      return m ? m[1] : '';
+    }
+
+    function startMirroringHLS(url) {
+      cleanupMirroringConnection();
+      cleanupImageCastingWS();
+      stopAllMedia();
+
+      isMirroringActive = true;
+      splash.classList.add('hidden');
+      statusText.textContent = 'Connecting...';
+      videoPlayer.muted = true;
+      videoPlayer.style.display = 'block';
+
+      console.log('[RECEIVER] Playing HLS mirror stream: ' + url);
+
+      if (Hls.isSupported()) {
+        hlsPlayer = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 0,
+          liveSyncPosition: 0.5,
+          liveMaxLatencyDuration: 1.5,
+          maxBufferSize: 1 * 1024 * 1024,
+          maxBufferLength: 1.5,
+          maxMaxBufferLength: 2.0,
+          liveDurationInfinity: true
+        });
+        hlsPlayer.loadSource(url);
+        hlsPlayer.attachMedia(videoPlayer);
+        hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function () {
+          statusText.textContent = 'Mirroring Screen';
+          videoPlayer.muted = false;
+          videoPlayer.play().catch(function () { });
+        });
+        hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
+          console.warn('[RECEIVER] HLS error:', data);
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hlsPlayer.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hlsPlayer.recoverMediaError();
+                break;
+              default:
+                var ip = getIPFromURL(url);
+                if (ip) {
+                  startMJPEGFallback(ip);
+                } else {
+                  stopMirroring();
+                }
+                break;
+            }
+          }
+        });
+      } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+        videoPlayer.src = url;
+        videoPlayer.addEventListener('loadedmetadata', function () {
+          statusText.textContent = 'Mirroring Screen';
+          videoPlayer.play().catch(function () { });
+        });
       }
     }
 
@@ -1294,6 +1369,10 @@
       wsFailureCount = 0;
       stopMJPEGFallback();
       clearMirrorReconnectTimer();
+      if (hlsPlayer) {
+        try { hlsPlayer.destroy(); } catch (e) { }
+        hlsPlayer = null;
+      }
       if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
       if (mirrorWS) {
         mirrorWS.onclose = null; mirrorWS.onerror = null; mirrorWS.onmessage = null; mirrorWS.onopen = null;
