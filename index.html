@@ -1070,7 +1070,7 @@
     // retrying the WS in the background so we can switch back to full-quality H.264 the
     // moment the host app is reachable again.
     var wsFailureCount = 0;
-    var MAX_WS_FAILURES_BEFORE_FALLBACK = 4; // ~10s of failed WS attempts (4 * 2.5s)
+    var MAX_WS_FAILURES_BEFORE_FALLBACK = 2; // ~2.4s of failed WS attempts (2 * 1.2s) for a snappier handoff
     var isMjpegFallbackActive = false;
     var EXTENSION_MJPEG_PORT = 10108;
     var mirrorJmuxer = null;
@@ -1135,6 +1135,9 @@
         wsFailureCount = 0;
         stopMJPEGFallback();
 
+        // Reset frame-pacing tracker for duration estimation (see onmessage below)
+        lastVideoFrameWallTime = 0;
+
         try {
           mirrorJmuxer = new JMuxer({
             node: 'video-player',
@@ -1154,22 +1157,41 @@
           console.error('[RECEIVER] JMuxer init failed:', e);
         }
 
-        // Aggressive live-edge: keep playback within 300ms of live, check every 200ms
+        // Aggressive live-edge: keep playback close to live, check every 200ms. Threshold
+        // relaxed slightly from 300ms to 450ms to cut down how often we force-seek (each
+        // seek is a visible micro-stutter) — still comfortably sub-second latency.
         mirrorLiveEdge = setInterval(function () {
           if (videoPlayer.buffered.length > 0) {
             var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-            if (end - videoPlayer.currentTime > 0.3) videoPlayer.currentTime = end - 0.03;
+            if (end - videoPlayer.currentTime > 0.45) videoPlayer.currentTime = end - 0.05;
           }
           if (videoPlayer.paused && isMirroringActive) videoPlayer.play().catch(function () { });
         }, 200);
       };
+
+      // Tracks wall-clock time between incoming video frames so we can feed jmuxer the
+      // actual observed frame duration instead of a hardcoded value tied to an assumed
+      // fixed encoder fps (the sender's capture fps is configurable and can vary/throttle,
+      // so a hardcoded duration can drift out of sync with reality and look unsmooth).
+      var lastVideoFrameWallTime = 0;
 
       mirrorWS.onmessage = function (event) {
         var buf = new Uint8Array(event.data);
         if (!buf.length) return;
         if (buf[0] === 0x05) return; // reserved for future AAC
         if (!mirrorJmuxer) return;
-        mirrorJmuxer.feed({ video: buf, duration: 33 });
+
+        var now = performance.now();
+        var duration = 33; // sane default until we have two real samples
+        if (lastVideoFrameWallTime > 0) {
+          var delta = now - lastVideoFrameWallTime;
+          // Clamp to a sane range so a long pause (e.g. backgrounding) or a burst of
+          // coalesced frames doesn't feed jmuxer a wildly wrong duration.
+          duration = Math.max(8, Math.min(120, delta));
+        }
+        lastVideoFrameWallTime = now;
+
+        mirrorJmuxer.feed({ video: buf, duration: duration });
       };
 
       mirrorWS.onerror = function (e) {
@@ -1207,14 +1229,21 @@
         // Re-enter startMirroringWS directly (bypass duplicate guard since mirrorWS is null)
         isMirroringActive = false; // allow restart
         startMirroringWS(serverIP);
-      }, 2500);
+      }, 1200);
     }
 
     // ── JPEG fallback (extension-hosted MJPEG server, survives host app death) ──────
     var mjpegFallbackRetryTimer = null;
+    var mjpegFallbackFailureCount = 0;
+    // If even the extension's own fallback server is unreachable this many times in a
+    // row (~9s), the broadcast itself is genuinely gone (e.g. it self-stopped because the
+    // phone was locked) rather than just the host app being briefly unreachable — give up
+    // and return to splash instead of sitting in "limited connection" limbo forever.
+    var MAX_MJPEG_FALLBACK_FAILURES = 6;
 
     function startMJPEGFallback(serverIP) {
       isMjpegFallbackActive = true;
+      mjpegFallbackFailureCount = 0;
       console.log('[RECEIVER] WS relay unreachable for a while — falling back to extension MJPEG on :' + EXTENSION_MJPEG_PORT);
       statusText.textContent = 'Mirroring (limited connection)';
       videoPlayer.style.display = 'none';
@@ -1226,10 +1255,17 @@
       if (!isMjpegFallbackActive || !isMirroringActive) return;
       mjpegViewer.onload = function () {
         if (!isMjpegFallbackActive) return;
+        mjpegFallbackFailureCount = 0;
         statusDot.classList.add('connected');
       };
       mjpegViewer.onerror = function () {
         if (!isMjpegFallbackActive) return;
+        mjpegFallbackFailureCount++;
+        if (mjpegFallbackFailureCount >= MAX_MJPEG_FALLBACK_FAILURES) {
+          console.log('[RECEIVER] Extension fallback also unreachable — broadcast is gone, returning to splash');
+          stopMirroring();
+          return;
+        }
         // Extension server not reachable yet either — keep retrying quietly while the
         // WS reconnect loop (already running) keeps trying to recover the full pipeline.
         if (mjpegFallbackRetryTimer) clearTimeout(mjpegFallbackRetryTimer);
@@ -1241,6 +1277,7 @@
     function stopMJPEGFallback() {
       if (!isMjpegFallbackActive) return;
       isMjpegFallbackActive = false;
+      mjpegFallbackFailureCount = 0;
       if (mjpegFallbackRetryTimer) { clearTimeout(mjpegFallbackRetryTimer); mjpegFallbackRetryTimer = null; }
       mjpegViewer.onload = null;
       mjpegViewer.onerror = null;
