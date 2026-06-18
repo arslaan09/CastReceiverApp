@@ -1128,7 +1128,7 @@
         hlsPlayer.attachMedia(videoPlayer);
         hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function () {
           statusText.textContent = 'Mirroring Screen';
-          videoPlayer.muted = false;
+          videoPlayer.muted = true;
           videoPlayer.play().catch(function () { });
         });
         hlsPlayer.on(Hls.Events.ERROR, function (event, data) {
