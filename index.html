@@ -554,6 +554,10 @@
     // Flag to track if we're playing audio (for overlay display)
     var isAudioMode = false;
 
+    // Watchdog to detect phone lock or sender suspension during mirroring
+    var lastMessageTime = 0;
+    var messageWatchdogTimer = null;
+
     // ── Connection state tracking ─────────────────────────────────────
     // Remembers whether a sender (iOS app) is actively connected so
     // returnToSplash() can show the correct status instead of always
@@ -1113,6 +1117,18 @@
       videoPlayer.muted = true;
       videoPlayer.style.display = 'block';
 
+      // Start watchdog timer to detect connection drops or phone locks
+      lastMessageTime = Date.now();
+      if (messageWatchdogTimer) { clearInterval(messageWatchdogTimer); }
+      messageWatchdogTimer = setInterval(function () {
+        if (!isMirroringActive) return;
+        var elapsed = Date.now() - lastMessageTime;
+        if (elapsed > 5000) { // 5 seconds timeout
+          console.warn('[RECEIVER] Mirroring connection timed out (no frames or heartbeats for 5s) — returning to splash');
+          stopMirroring();
+        }
+      }, 1000);
+
       var wsUrl = 'ws://' + serverIP + ':10101';
       console.log('[RECEIVER] Connecting mirror WS: ' + wsUrl);
 
@@ -1134,6 +1150,9 @@
         // Full-quality H.264 relay is back (host app reachable again) — drop the fallback.
         wsFailureCount = 0;
         stopMJPEGFallback();
+
+        // Reset watchdog baseline on open
+        lastMessageTime = Date.now();
 
         // Reset frame-pacing tracker for duration estimation (see onmessage below)
         lastVideoFrameWallTime = 0;
@@ -1176,6 +1195,25 @@
       var lastVideoFrameWallTime = 0;
 
       mirrorWS.onmessage = function (event) {
+        lastMessageTime = Date.now();
+
+        // Text frames are control messages (e.g. a clean stop signal sent directly by
+        // the broadcast extension — used when the host app isn't around to send
+        // STOP_MIRRORING itself, such as the device locking while the app is
+        // backgrounded). Binary frames are video, handled below as before.
+        if (typeof event.data === 'string') {
+          try {
+            var ctrl = JSON.parse(event.data);
+            if (ctrl.type === 'MIRROR_SERVER_STOPPING') {
+              console.log('[RECEIVER] Mirror server signaled a clean stop');
+              stopMirroring();
+            } else if (ctrl.type === 'HEARTBEAT') {
+              // Heartbeat keepalive — do nothing, lastMessageTime is already updated
+            }
+          } catch (e) { }
+          return;
+        }
+
         var buf = new Uint8Array(event.data);
         if (!buf.length) return;
         if (buf[0] === 0x05) return; // reserved for future AAC
@@ -1294,6 +1332,7 @@
       wsFailureCount = 0;
       stopMJPEGFallback();
       clearMirrorReconnectTimer();
+      if (messageWatchdogTimer) { clearInterval(messageWatchdogTimer); messageWatchdogTimer = null; }
       if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
       if (mirrorWS) {
         mirrorWS.onclose = null; mirrorWS.onerror = null; mirrorWS.onmessage = null; mirrorWS.onopen = null;
