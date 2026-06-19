@@ -510,8 +510,6 @@
   </div>
 
   <video id="video-player" autoplay playsinline muted></video>
-  <img id="mjpeg-viewer" class="hidden"
-    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 5; background: black; will-change: contents; transform: translateZ(0); image-rendering: auto;">
   <video id="media-player" class="hidden" playsinline preload="auto"
     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 7; background: black;"></video>
   <img id="image-viewer" class="hidden"
@@ -1074,14 +1072,13 @@
     // retrying the WS in the background so we can switch back to full-quality H.264 the
     // moment the host app is reachable again.
     var wsFailureCount = 0;
-    var MAX_WS_FAILURES_BEFORE_FALLBACK = 2; // ~2.4s of failed WS attempts (2 * 1.2s) for a snappier handoff
-    var isMjpegFallbackActive = false;
-    var EXTENSION_MJPEG_PORT = 10108;
     var mirrorJmuxer = null;
     var mirrorLiveEdge = null;
     var mirrorReconnectTimer = null;
     var lastMirrorWidth = 0;
     var lastMirrorHeight = 0;
+    var droppingFrames = false;
+    var needsSeekToLiveEdge = false;
 
     function clearMirrorReconnectTimer() {
       if (mirrorReconnectTimer) {
@@ -1147,9 +1144,9 @@
         statusText.textContent = 'Connected — starting stream...';
         statusDot.classList.add('connected');
         clearMirrorReconnectTimer();
-        // Full-quality H.264 relay is back (host app reachable again) — drop the fallback.
         wsFailureCount = 0;
-        stopMJPEGFallback();
+        droppingFrames = false;
+        needsSeekToLiveEdge = false;
 
         // Reset watchdog baseline on open
         lastMessageTime = Date.now();
@@ -1167,7 +1164,7 @@
             debug: false,
             onReady: function () {
               statusText.textContent = 'Mirroring Screen';
-              videoPlayer.muted = false;
+              // Keep video element muted permanently to prevent browser autoplay blocking
               videoPlayer.play().catch(function () { });
             },
             onError: function (d) { console.warn('[RECEIVER] jmuxer error', d); }
@@ -1176,16 +1173,31 @@
           console.error('[RECEIVER] JMuxer init failed:', e);
         }
 
-        // Aggressive live-edge: keep playback close to live, check every 200ms. Threshold
-        // relaxed slightly from 300ms to 450ms to cut down how often we force-seek (each
-        // seek is a visible micro-stutter) — still comfortably sub-second latency.
+        // Live edge and adaptive playback rate check (every 100ms)
         mirrorLiveEdge = setInterval(function () {
           if (videoPlayer.buffered.length > 0) {
             var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-            if (end - videoPlayer.currentTime > 0.45) videoPlayer.currentTime = end - 0.05;
+            var lag = end - videoPlayer.currentTime;
+            
+            if (lag > 0.8) {
+              if (!droppingFrames) {
+                console.log('[RECEIVER] Latency exceeded threshold (' + lag.toFixed(2) + 's). Entering frame dropping state.');
+                droppingFrames = true;
+              }
+            } else if (lag > 0.15) {
+              if (videoPlayer.playbackRate !== 1.15) {
+                videoPlayer.playbackRate = 1.15;
+                console.log('[RECEIVER] Latency is ' + lag.toFixed(2) + 's. Increasing playbackRate to 1.15');
+              }
+            } else {
+              if (videoPlayer.playbackRate !== 1.0) {
+                videoPlayer.playbackRate = 1.0;
+                console.log('[RECEIVER] Latency is normal (' + lag.toFixed(2) + 's). Resetting playbackRate to 1.0');
+              }
+            }
           }
           if (videoPlayer.paused && isMirroringActive) videoPlayer.play().catch(function () { });
-        }, 200);
+        }, 100);
       };
 
       // Tracks wall-clock time between incoming video frames so we can feed jmuxer the
@@ -1214,22 +1226,78 @@
           return;
         }
 
+      function isKeyframe(buf) {
+        var len = buf.length;
+        for (var i = 0; i < len - 4; i++) {
+          if (buf[i] === 0 && buf[i + 1] === 0) {
+            var startCodeLen = 0;
+            if (buf[i + 2] === 1) {
+              startCodeLen = 3;
+            } else if (buf[i + 2] === 0 && buf[i + 3] === 1) {
+              startCodeLen = 4;
+            }
+            if (startCodeLen > 0) {
+              var nalType = buf[i + startCodeLen] & 0x1F;
+              if (nalType === 5 || nalType === 7 || nalType === 8) {
+                return true;
+              }
+              i += startCodeLen;
+            }
+          }
+        }
+        return false;
+      }
+
+      mirrorWS.onmessage = function (event) {
+        lastMessageTime = Date.now();
+
+        if (typeof event.data === 'string') {
+          try {
+            var ctrl = JSON.parse(event.data);
+            if (ctrl.type === 'MIRROR_SERVER_STOPPING') {
+              console.log('[RECEIVER] Mirror server signaled a clean stop');
+              stopMirroring();
+            }
+          } catch (e) { }
+          return;
+        }
+
         var buf = new Uint8Array(event.data);
         if (!buf.length) return;
         if (buf[0] === 0x05) return; // reserved for future AAC
         if (!mirrorJmuxer) return;
 
+        if (droppingFrames) {
+          if (isKeyframe(buf)) {
+            droppingFrames = false;
+            needsSeekToLiveEdge = true;
+            console.log('[RECEIVER] Lag catch-up: keyframe detected, resuming stream feed.');
+          } else {
+            // Neglect non-keyframe during lag catch-up
+            return;
+          }
+        }
+
         var now = performance.now();
-        var duration = 33; // sane default until we have two real samples
+        var duration = 33;
         if (lastVideoFrameWallTime > 0) {
           var delta = now - lastVideoFrameWallTime;
-          // Clamp to a sane range so a long pause (e.g. backgrounding) or a burst of
-          // coalesced frames doesn't feed jmuxer a wildly wrong duration.
           duration = Math.max(8, Math.min(120, delta));
         }
         lastVideoFrameWallTime = now;
 
         mirrorJmuxer.feed({ video: buf, duration: duration });
+
+        if (needsSeekToLiveEdge) {
+          needsSeekToLiveEdge = false;
+          setTimeout(function () {
+            if (videoPlayer.buffered.length > 0) {
+              var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+              videoPlayer.currentTime = end - 0.02;
+              console.log('[RECEIVER] Lag catch-up: seeked video player to live edge: ' + (end - 0.02));
+            }
+          }, 35);
+        }
       };
 
       mirrorWS.onerror = function (e) {
@@ -1250,9 +1318,6 @@
     function scheduleMirrorReconnect(serverIP) {
       clearMirrorReconnectTimer();
       wsFailureCount++;
-      if (wsFailureCount >= MAX_WS_FAILURES_BEFORE_FALLBACK && !isMjpegFallbackActive) {
-        startMJPEGFallback(serverIP);
-      }
       mirrorReconnectTimer = setTimeout(function () {
         if (!isMirroringActive) return;
         console.log('[RECEIVER] Retrying mirror WS for ' + serverIP);
@@ -1270,67 +1335,10 @@
       }, 1200);
     }
 
-    // ── JPEG fallback (extension-hosted MJPEG server, survives host app death) ──────
-    var mjpegFallbackRetryTimer = null;
-    var mjpegFallbackFailureCount = 0;
-    // If even the extension's own fallback server is unreachable this many times in a
-    // row (~9s), the broadcast itself is genuinely gone (e.g. it self-stopped because the
-    // phone was locked) rather than just the host app being briefly unreachable — give up
-    // and return to splash instead of sitting in "limited connection" limbo forever.
-    var MAX_MJPEG_FALLBACK_FAILURES = 6;
-
-    function startMJPEGFallback(serverIP) {
-      isMjpegFallbackActive = true;
-      mjpegFallbackFailureCount = 0;
-      console.log('[RECEIVER] WS relay unreachable for a while — falling back to extension MJPEG on :' + EXTENSION_MJPEG_PORT);
-      statusText.textContent = 'Mirroring (limited connection)';
-      videoPlayer.style.display = 'none';
-      mjpegViewer.classList.remove('hidden');
-      loadMJPEGFallbackFrame(serverIP);
-    }
-
-    function loadMJPEGFallbackFrame(serverIP) {
-      if (!isMjpegFallbackActive || !isMirroringActive) return;
-      mjpegViewer.onload = function () {
-        if (!isMjpegFallbackActive) return;
-        mjpegFallbackFailureCount = 0;
-        statusDot.classList.add('connected');
-      };
-      mjpegViewer.onerror = function () {
-        if (!isMjpegFallbackActive) return;
-        mjpegFallbackFailureCount++;
-        if (mjpegFallbackFailureCount >= MAX_MJPEG_FALLBACK_FAILURES) {
-          console.log('[RECEIVER] Extension fallback also unreachable — broadcast is gone, returning to splash');
-          stopMirroring();
-          return;
-        }
-        // Extension server not reachable yet either — keep retrying quietly while the
-        // WS reconnect loop (already running) keeps trying to recover the full pipeline.
-        if (mjpegFallbackRetryTimer) clearTimeout(mjpegFallbackRetryTimer);
-        mjpegFallbackRetryTimer = setTimeout(function () { loadMJPEGFallbackFrame(serverIP); }, 1500);
-      };
-      mjpegViewer.src = 'http://' + serverIP + ':' + EXTENSION_MJPEG_PORT + '/mjpeg?t=' + Date.now();
-    }
-
-    function stopMJPEGFallback() {
-      if (!isMjpegFallbackActive) return;
-      isMjpegFallbackActive = false;
-      mjpegFallbackFailureCount = 0;
-      if (mjpegFallbackRetryTimer) { clearTimeout(mjpegFallbackRetryTimer); mjpegFallbackRetryTimer = null; }
-      mjpegViewer.onload = null;
-      mjpegViewer.onerror = null;
-      mjpegViewer.src = '';
-      mjpegViewer.classList.add('hidden');
-      videoPlayer.style.display = 'block';
-    }
-
-
-
     function cleanupMirroringConnection() {
       isMirroringActive = false;
       mirrorServerIP = '';
       wsFailureCount = 0;
-      stopMJPEGFallback();
       clearMirrorReconnectTimer();
       if (messageWatchdogTimer) { clearInterval(messageWatchdogTimer); messageWatchdogTimer = null; }
       if (mirrorLiveEdge) { clearInterval(mirrorLiveEdge); mirrorLiveEdge = null; }
@@ -1451,11 +1459,7 @@
           // the broadcast extension, completely independent of the Cast
           // SDK sender connection. The sender disconnects when the app is
           // backgrounded, but the extension keeps streaming frames.
-          //
-          // However, if the user actually stopped the broadcast, the MJPEG stream
-          // will die shortly. Reduce retry patience so we detect it fast.
-          console.log('[RECEIVER] Sender gone during active mirroring — reducing retry patience');
-          mjpegRetryCount = MAX_MJPEG_RETRIES; // Next onerror will exhaust retries immediately
+          console.log('[RECEIVER] Sender gone during active mirroring');
         } else {
           // Nothing active — return to splash and wait for next cast command.
           // Do NOT call context.stop() — keep the receiver alive so the user
