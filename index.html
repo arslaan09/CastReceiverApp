@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<DOCTYPE html>
 <html>
 
 <head>
@@ -1081,7 +1081,7 @@
     var droppingFrames = false;
     var needsSeekToLiveEdge = false;
     var frameTimes = [];
-    var currentFps = 60;
+    var currentFps = 30;
 
     function clearMirrorReconnectTimer() {
       if (mirrorReconnectTimer) {
@@ -1157,7 +1157,7 @@
         // Reset frame-pacing tracker for duration estimation (see onmessage below)
         lastVideoFrameWallTime = 0;
         frameTimes = [];
-        currentFps = 60;
+        currentFps = 30;
 
         try {
           mirrorJmuxer = new JMuxer({
@@ -1165,7 +1165,7 @@
             mode: 'video',
             flushingTime: 10,
             clearBuffer: true,
-            fps: 60,
+            fps: 30,
             debug: false,
             onReady: function () {
               statusText.textContent = 'Mirroring Screen';
@@ -1297,9 +1297,7 @@
           var elapsed = frameTimes[frameTimes.length - 1] - frameTimes[0];
           if (elapsed > 0) {
             var avgFps = (frameTimes.length - 1) / (elapsed / 1000);
-            if (avgFps > 45) {
-              currentFps = 60;
-            } else if (avgFps > 25) {
+            if (avgFps > 27) {
               currentFps = 30;
             } else if (avgFps > 18) {
               currentFps = 24;
