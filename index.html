@@ -1159,7 +1159,7 @@
           mirrorJmuxer = new JMuxer({
             node: 'video-player',
             mode: 'video',
-            flushingTime: 0,
+            flushingTime: 10,
             clearBuffer: true,
             fps: 60,
             debug: false,
@@ -1298,8 +1298,8 @@
           setTimeout(function () {
             if (videoPlayer.buffered.length > 0) {
               var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-              videoPlayer.currentTime = end - 0.02;
-              console.log('[RECEIVER] Lag catch-up: seeked video player to live edge: ' + (end - 0.02));
+              videoPlayer.currentTime = end - 0.05;
+              console.log('[RECEIVER] Lag catch-up: seeked video player to live edge: ' + (end - 0.05));
             }
           }, 35);
         }
