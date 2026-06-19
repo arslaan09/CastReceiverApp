@@ -679,7 +679,8 @@
 
       // Live app-audio stream (game/movie system audio from the iOS device)
       if (data.type === 'START_AUDIO_STREAM') {
-        if (data.audioUrl) startMirrorAudio(data.audioUrl);
+        // No longer fetch HTTP audio for WebSocket-based mirroring to prevent double-play and sync drift.
+        console.log('[RECEIVER] START_AUDIO_STREAM received — using WebSocket audio instead of HTTP fetch');
       }
 
       if (data.type === 'STOP_AUDIO_STREAM') {
@@ -1206,26 +1207,6 @@
       // so a hardcoded duration can drift out of sync with reality and look unsmooth).
       var lastVideoFrameWallTime = 0;
 
-      mirrorWS.onmessage = function (event) {
-        lastMessageTime = Date.now();
-
-        // Text frames are control messages (e.g. a clean stop signal sent directly by
-        // the broadcast extension — used when the host app isn't around to send
-        // STOP_MIRRORING itself, such as the device locking while the app is
-        // backgrounded). Binary frames are video, handled below as before.
-        if (typeof event.data === 'string') {
-          try {
-            var ctrl = JSON.parse(event.data);
-            if (ctrl.type === 'MIRROR_SERVER_STOPPING') {
-              console.log('[RECEIVER] Mirror server signaled a clean stop');
-              stopMirroring();
-            } else if (ctrl.type === 'HEARTBEAT') {
-              // Heartbeat keepalive — do nothing, lastMessageTime is already updated
-            }
-          } catch (e) { }
-          return;
-        }
-
       function isKeyframe(buf) {
         var len = buf.length;
         for (var i = 0; i < len - 4; i++) {
@@ -1264,7 +1245,31 @@
 
         var buf = new Uint8Array(event.data);
         if (!buf.length) return;
-        if (buf[0] === 0x05) return; // reserved for future AAC
+
+        // WebSocket Audio handling
+        if (buf[0] === 0x06) {
+          var subtype = buf[1];
+          if (subtype === 1) {
+            // Format Info: [0x06, 0x01, 4-byte rate, 2-byte channels]
+            if (buf.length >= 8) {
+              var dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+              var sampleRate = dv.getUint32(2, false); // big-endian
+              var channels = dv.getUint16(6, false); // big-endian
+              if (!_audioCtx || _audioCtx.sampleRate !== sampleRate || _audioChannels !== channels) {
+                console.log('[RECEIVER] WS Audio Format Changed/Init: ' + sampleRate + 'Hz, ' + channels + 'ch');
+                _audioChannels = channels;
+                initWebAudio(sampleRate);
+              }
+            }
+          } else if (subtype === 2) {
+            // PCM Data: [0x06, 0x02, raw Int16 PCM samples]
+            var pcmBytes = buf.subarray(2);
+            enqueuePCM(pcmBytes);
+          }
+          return;
+        }
+
+        if (buf[0] === 0x05) return; // ignore legacy AAC
         if (!mirrorJmuxer) return;
 
         if (droppingFrames) {
