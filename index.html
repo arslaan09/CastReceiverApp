@@ -1078,10 +1078,7 @@
     var mirrorReconnectTimer = null;
     var lastMirrorWidth = 0;
     var lastMirrorHeight = 0;
-    var droppingFrames = false;
     var needsSeekToLiveEdge = false;
-    var frameTimes = [];
-    var currentFps = 30;
 
     function clearMirrorReconnectTimer() {
       if (mirrorReconnectTimer) {
@@ -1148,7 +1145,6 @@
         statusDot.classList.add('connected');
         clearMirrorReconnectTimer();
         wsFailureCount = 0;
-        droppingFrames = false;
         needsSeekToLiveEdge = false;
 
         // Reset watchdog baseline on open
@@ -1156,16 +1152,13 @@
 
         // Reset frame-pacing tracker for duration estimation (see onmessage below)
         lastVideoFrameWallTime = 0;
-        frameTimes = [];
-        currentFps = 30;
 
         try {
           mirrorJmuxer = new JMuxer({
             node: 'video-player',
             mode: 'video',
-            flushingTime: 10,
+            flushingTime: 33,
             clearBuffer: true,
-            fps: 30,
             debug: false,
             onReady: function () {
               statusText.textContent = 'Mirroring Screen';
@@ -1178,37 +1171,35 @@
           console.error('[RECEIVER] JMuxer init failed:', e);
         }
 
-        // Live edge and adaptive playback rate check (every 100ms)
+        // Live edge check: gentle playback-rate catch-up with seek fallback.
+        // - Lag 0.3–0.6s: speed up by 5% (imperceptible to user)
+        // - Lag > 0.6s: seek directly to live edge on the next keyframe
+        // - Lag < 0.3s: normal speed
         mirrorLiveEdge = setInterval(function () {
           if (videoPlayer.buffered.length > 0) {
             var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             var lag = end - videoPlayer.currentTime;
-            
-            if (lag > 0.8) {
-              if (!droppingFrames) {
-                console.log('[RECEIVER] Latency exceeded threshold (' + lag.toFixed(2) + 's). Entering frame dropping state.');
-                droppingFrames = true;
-              }
-            } else if (lag > 0.15) {
-              if (videoPlayer.playbackRate !== 1.15) {
-                videoPlayer.playbackRate = 1.15;
-                console.log('[RECEIVER] Latency is ' + lag.toFixed(2) + 's. Increasing playbackRate to 1.15');
+
+            if (lag > 0.6) {
+              // Too far behind — seek to live edge immediately
+              needsSeekToLiveEdge = true;
+            } else if (lag > 0.3) {
+              if (videoPlayer.playbackRate !== 1.05) {
+                videoPlayer.playbackRate = 1.05;
               }
             } else {
               if (videoPlayer.playbackRate !== 1.0) {
                 videoPlayer.playbackRate = 1.0;
-                console.log('[RECEIVER] Latency is normal (' + lag.toFixed(2) + 's). Resetting playbackRate to 1.0');
               }
             }
           }
           if (videoPlayer.paused && isMirroringActive) videoPlayer.play().catch(function () { });
-        }, 100);
+        }, 150);
       };
 
-      // Tracks wall-clock time between incoming video frames so we can feed jmuxer the
-      // actual observed frame duration instead of a hardcoded value tied to an assumed
-      // fixed encoder fps (the sender's capture fps is configurable and can vary/throttle,
-      // so a hardcoded duration can drift out of sync with reality and look unsmooth).
+      // Direct wall-clock delta for frame duration: measure time between consecutive
+      // video frames and feed that directly to jmuxer, clamped to sane bounds.
+      // This replaces the noisy FPS-bucket averaging system.
       var lastVideoFrameWallTime = 0;
 
       function isKeyframe(buf) {
@@ -1276,49 +1267,40 @@
         if (buf[0] === 0x05) return; // ignore legacy AAC
         if (!mirrorJmuxer) return;
 
-        if (droppingFrames) {
-          if (isKeyframe(buf)) {
-            droppingFrames = false;
-            needsSeekToLiveEdge = true;
-            console.log('[RECEIVER] Lag catch-up: keyframe detected, resuming stream feed.');
-          } else {
-            // Neglect non-keyframe during lag catch-up
-            return;
-          }
+        // Validate H.264 start code — skip corrupted frames that would cause
+        // decoder errors and visual glitches.
+        if (buf.length < 4) return;
+        var hasStartCode = (buf[0] === 0 && buf[1] === 0 && buf[2] === 0 && buf[3] === 1) ||
+                           (buf[0] === 0 && buf[1] === 0 && buf[2] === 1);
+        if (!hasStartCode) {
+          console.warn('[RECEIVER] Skipping corrupted frame (no H.264 start code)');
+          return;
         }
 
+        // Direct wall-clock frame duration: measure actual time between frames
+        // and clamp to sane bounds (15ms=~66fps to 100ms=10fps).
         var now = performance.now();
-        frameTimes.push(now);
-        if (frameTimes.length > 30) {
-          frameTimes.shift();
+        var duration = 33; // default: ~30fps
+        if (lastVideoFrameWallTime > 0) {
+          duration = now - lastVideoFrameWallTime;
+          if (duration < 15) duration = 15;
+          if (duration > 100) duration = 100;
         }
-
-        if (frameTimes.length > 1) {
-          var elapsed = frameTimes[frameTimes.length - 1] - frameTimes[0];
-          if (elapsed > 0) {
-            var avgFps = (frameTimes.length - 1) / (elapsed / 1000);
-            if (avgFps > 27) {
-              currentFps = 30;
-            } else if (avgFps > 18) {
-              currentFps = 24;
-            } else {
-              currentFps = 15;
-            }
-          }
-        }
-        var duration = 1000 / currentFps;
+        lastVideoFrameWallTime = now;
 
         mirrorJmuxer.feed({ video: buf, duration: duration });
 
-        if (needsSeekToLiveEdge) {
+        // Seek to live edge when lag exceeded threshold — only on keyframes
+        // for clean visual recovery (no mid-GOP seek artifacts).
+        if (needsSeekToLiveEdge && isKeyframe(buf)) {
           needsSeekToLiveEdge = false;
           setTimeout(function () {
             if (videoPlayer.buffered.length > 0) {
               var end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
-              videoPlayer.currentTime = end - 0.05;
-              console.log('[RECEIVER] Lag catch-up: seeked video player to live edge: ' + (end - 0.05));
+              videoPlayer.currentTime = end - 0.03;
+              videoPlayer.playbackRate = 1.0;
             }
-          }, 35);
+          }, 20);
         }
       };
 
