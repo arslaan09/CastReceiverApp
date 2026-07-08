@@ -337,7 +337,7 @@
         () => updateUIForMediaState()
       );
       playerManager.addEventListener(
-        cast.framework.events.EventType.REQUEST_LOAD,
+        cast.framework.events.EventType.LOAD_START,
         () => {
           // Media casting takes over — clean up any WebRTC mirroring session.
           if (pc) { pc.close(); pc = null; }
