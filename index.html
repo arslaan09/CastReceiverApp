@@ -343,8 +343,12 @@
     <div class="glow-blob blob2"></div>
   </div>
 
-  <!-- Start muted to ensure Chromium autoplay succeeds; iOS controls audio via track.isEnabled -->
+  <!-- Mirror video stays PERMANENTLY muted (autoplay-safe). Mirroring sound
+       plays through the dedicated #audio-sink element below, fed by the
+       WebRTC audio track — the two stay in sync because they share one
+       peer connection (RTCP lip-sync). -->
   <video id="video" autoplay playsinline muted></video>
+  <audio id="audio-sink" autoplay></audio>
 
   <!-- Standard Cast Media Player -->
   <cast-media-player></cast-media-player>
@@ -414,6 +418,7 @@
 
     // ── DOM refs ──────────────────────────────────────────────────────────
     const video       = document.getElementById('video');
+    const audioSink   = document.getElementById('audio-sink');
     const overlay     = document.getElementById('overlay');
     const logoRing    = document.getElementById('logo-ring');
     const statusTitle = document.getElementById('status-title');
@@ -451,10 +456,11 @@
           : -1;
         context.sendCustomMessage(NS, senderId, {
           type: 'AUDIO_STATE',
+          rv: 3, // receiver revision — lets the phone verify the deployed version
           audioTracks: audioTracks,
-          muted: video.muted,
-          volume: video.volume,
-          paused: video.paused
+          muted: audioSink.muted,
+          volume: audioSink.volume,
+          paused: audioSink.paused
         });
       } catch (e) { /* diagnostics only */ }
     }
@@ -629,10 +635,13 @@
           cancelShutdown();
 
           // Clean up any WebRTC mirroring session.
+          stopAudioStateReporting();
           if (pc) { pc.close(); pc = null; }
           remoteDescSet = false;
           pendingCandidates = [];
           video.srcObject = null;
+          audioSink.srcObject = null;
+          audioSink.pause();
 
           // Hide overlay & mirroring elements immediately so the standard player is exposed.
           const imgPlayer = document.getElementById('image-player');
@@ -690,9 +699,9 @@
           const v = parseFloat(msg.volume);
           if (!isNaN(v)) {
             requestedVolume = Math.max(0, Math.min(1, v));
-            // Mirror stream (WebRTC audio track)
-            video.volume = requestedVolume;
-            video.muted  = requestedVolume <= 0.001;
+            // Mirroring sound (dedicated audio element)
+            audioSink.volume = requestedVolume;
+            audioSink.muted  = requestedVolume <= 0.001;
             // Custom media player (video/audio casting)
             mediaPlayer.volume = requestedVolume;
             if (requestedVolume > 0.001) mediaPlayer.muted = false;
@@ -748,10 +757,13 @@
       isImageActive = true;
 
       // Clean up any WebRTC session
+      stopAudioStateReporting();
       if (pc) { pc.close(); pc = null; }
       remoteDescSet = false;
       pendingCandidates = [];
       video.srcObject = null;
+      audioSink.srcObject = null;
+      audioSink.pause();
 
       // Stop media player if running
       try {
@@ -798,20 +810,28 @@
 
       conn.ontrack = (event) => {
         if (event.receiver) event.receiver.playoutDelayHint = 0;
+
+        // AUDIO: plays through the dedicated #audio-sink element only.
+        // The mirror video element stays muted forever, so its autoplay can
+        // never be blocked and never swallows the sound.
+        if (event.track && event.track.kind === 'audio') {
+          audioSink.srcObject = new MediaStream([event.track]);
+          audioSink.volume = requestedVolume;
+          audioSink.muted = requestedVolume <= 0.001;
+          audioSink.play().catch(e => console.warn('[Receiver] audio play failed:', e));
+          reportAudioState();
+          startAudioStateReporting();
+          return;
+        }
+
+        // VIDEO
         let stream = event.streams[0];
         if (!stream && event.track) stream = new MediaStream([event.track]);
         if (!stream) return;
         if (video.srcObject !== stream) {
           video.srcObject = stream;
-          video.volume = requestedVolume;
-          // Unmute so the WebRTC audio track is audible (the element starts
-          // muted for autoplay); fall back to muted playback if the platform
-          // refuses unmuted autoplay.
-          video.muted = requestedVolume <= 0.001;
-          video.play().catch(() => {
-            video.muted = true;
-            video.play().catch(e => console.error('[Receiver] play(muted) failed:', e));
-          });
+          video.muted = true; // sound comes from #audio-sink, never from here
+          video.play().catch(e => console.error('[Receiver] video play failed:', e));
         }
         showStream(true);
         setStatus('Mirroring live');
@@ -834,13 +854,12 @@
           case 'connected':
           case 'completed':
             setStatus('Mirroring live', 'Receiving your iPhone screen');
-            // If the initial play() had to fall back to muted autoplay,
-            // unmute now that the session is established — mirroring audio
-            // always streams at full volume; the TV remote sets loudness.
-            if (video.srcObject && video.muted && requestedVolume > 0.001) {
-              video.muted = false;
-              video.volume = requestedVolume;
-              video.play().catch(() => { video.muted = true; });
+            // Kick the audio sink again now that the session is established —
+            // mirroring audio streams at full volume; the TV remote sets loudness.
+            if (audioSink.srcObject && requestedVolume > 0.001) {
+              audioSink.muted = false;
+              audioSink.volume = requestedVolume;
+              if (audioSink.paused) audioSink.play().catch(() => {});
             }
             reportAudioState();
             break;
@@ -1169,6 +1188,8 @@
       remoteDescSet     = false;
       pendingCandidates = [];
       video.srcObject   = null;
+      audioSink.srcObject = null;
+      audioSink.pause();
 
       // Hide image player
       const imgPlayer = document.getElementById('image-player');
