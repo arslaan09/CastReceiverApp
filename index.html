@@ -439,6 +439,34 @@
     // Volume requested by the phone (0–1). Applied to whichever element is
     // playing — the WebRTC mirror video and/or the custom media player.
     let requestedVolume = 1;
+    let audioStateInterval = null;
+
+    // Diagnostic ping to the phone: how many audio tracks arrived and whether
+    // the mirror video is actually audible. Logged on the iOS side.
+    function reportAudioState() {
+      try {
+        if (!pc || !senderId) return;
+        const audioTracks = pc.getReceivers
+          ? pc.getReceivers().filter(r => r.track && r.track.kind === 'audio').length
+          : -1;
+        context.sendCustomMessage(NS, senderId, {
+          type: 'AUDIO_STATE',
+          audioTracks: audioTracks,
+          muted: video.muted,
+          volume: video.volume,
+          paused: video.paused
+        });
+      } catch (e) { /* diagnostics only */ }
+    }
+
+    function startAudioStateReporting() {
+      if (audioStateInterval) return;
+      audioStateInterval = setInterval(reportAudioState, 5000);
+    }
+
+    function stopAudioStateReporting() {
+      if (audioStateInterval) { clearInterval(audioStateInterval); audioStateInterval = null; }
+    }
     let mediaRetryCount = 0;
     const MAX_MEDIA_RETRIES = 4;
     let mediaRetryTimer = null;
@@ -787,6 +815,8 @@
         }
         showStream(true);
         setStatus('Mirroring live');
+        reportAudioState();
+        startAudioStateReporting();
       };
 
       conn.onicecandidate = ({ candidate }) => {
@@ -812,6 +842,7 @@
               video.volume = requestedVolume;
               video.play().catch(() => { video.muted = true; });
             }
+            reportAudioState();
             break;
           case 'disconnected':
             setStatus('Reconnecting…', 'The connection is weak — hold on a moment');
@@ -1133,6 +1164,7 @@
         hideAudioOverlay();
       }
 
+      stopAudioStateReporting();
       if (pc) { pc.close(); pc = null; }
       remoteDescSet     = false;
       pendingCandidates = [];
