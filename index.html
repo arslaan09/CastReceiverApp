@@ -804,6 +804,14 @@
           case 'connected':
           case 'completed':
             setStatus('Mirroring live', 'Receiving your iPhone screen');
+            // If the initial play() had to fall back to muted autoplay,
+            // unmute now that the session is established — mirroring audio
+            // always streams at full volume; the TV remote sets loudness.
+            if (video.srcObject && video.muted && requestedVolume > 0.001) {
+              video.muted = false;
+              video.volume = requestedVolume;
+              video.play().catch(() => { video.muted = true; });
+            }
             break;
           case 'disconnected':
             setStatus('Reconnecting…', 'The connection is weak — hold on a moment');
