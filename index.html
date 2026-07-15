@@ -436,6 +436,9 @@
 
     let mediaStopping = false;
     let isAudioMode = false;
+    // Volume requested by the phone (0–1). Applied to whichever element is
+    // playing — the WebRTC mirror video and/or the custom media player.
+    let requestedVolume = 1;
     let mediaRetryCount = 0;
     const MAX_MEDIA_RETRIES = 4;
     let mediaRetryTimer = null;
@@ -655,10 +658,19 @@
         case 'MEDIA_CONTROL':
           handleMediaControl(msg.command, msg.value);
           break;
-        case 'SET_VOLUME':
+        case 'SET_VOLUME': {
           const v = parseFloat(msg.volume);
-          if (!isNaN(v)) mediaPlayer.volume = Math.max(0, Math.min(1, v));
+          if (!isNaN(v)) {
+            requestedVolume = Math.max(0, Math.min(1, v));
+            // Mirror stream (WebRTC audio track)
+            video.volume = requestedVolume;
+            video.muted  = requestedVolume <= 0.001;
+            // Custom media player (video/audio casting)
+            mediaPlayer.volume = requestedVolume;
+            if (requestedVolume > 0.001) mediaPlayer.muted = false;
+          }
           break;
+        }
         case 'STOP_CASTING':
           console.log('[Receiver] STOP_CASTING received — returning to splash');
           returnToSplash();
@@ -763,7 +775,11 @@
         if (!stream) return;
         if (video.srcObject !== stream) {
           video.srcObject = stream;
-          video.volume = 1;
+          video.volume = requestedVolume;
+          // Unmute so the WebRTC audio track is audible (the element starts
+          // muted for autoplay); fall back to muted playback if the platform
+          // refuses unmuted autoplay.
+          video.muted = requestedVolume <= 0.001;
           video.play().catch(() => {
             video.muted = true;
             video.play().catch(e => console.error('[Receiver] play(muted) failed:', e));
@@ -935,7 +951,8 @@
 
     mediaPlayer.addEventListener('loadeddata', () => {
       console.log('[Receiver] media loadeddata — unmuting custom player');
-      mediaPlayer.muted = false;
+      mediaPlayer.volume = requestedVolume;
+      mediaPlayer.muted = requestedVolume <= 0.001;
     });
 
     mediaPlayer.addEventListener('seeked', () => {
