@@ -348,10 +348,7 @@
        WebRTC audio track — the two stay in sync because they share one
        peer connection (RTCP lip-sync). -->
   <video id="video" autoplay playsinline muted></video>
-  <!-- playsinline is required on Chromium/Chromecast to prevent the browser
-       from applying autoplay muting to the audio element. muted must NEVER
-       be set here — the element must start unmuted so the audio track plays. -->
-  <audio id="audio-sink" autoplay playsinline></audio>
+  <audio id="audio-sink" autoplay></audio>
 
   <!-- Standard Cast Media Player -->
   <cast-media-player></cast-media-player>
@@ -449,19 +446,6 @@
     let requestedVolume = 1;
     let audioStateInterval = null;
 
-    // Send console logs back to the iOS app for visibility in Xcode debugger.
-    function receiverLog(text) {
-      console.log(text);
-      try {
-        if (context && senderId) {
-          context.sendCustomMessage(NS, senderId, {
-            type: 'RECEIVER_LOG',
-            text: text
-          });
-        }
-      } catch (e) {}
-    }
-
     // Diagnostic ping to the phone: how many audio tracks arrived and whether
     // the mirror video is actually audible. Logged on the iOS side.
     function reportAudioState() {
@@ -472,7 +456,7 @@
           : -1;
         context.sendCustomMessage(NS, senderId, {
           type: 'AUDIO_STATE',
-          rv: 4, // receiver revision 4
+          rv: 4, // receiver revision — lets the phone verify the deployed version
           audioTracks: audioTracks,
           muted: audioSink.muted,
           volume: audioSink.volume,
@@ -831,18 +815,10 @@
         // The mirror video element stays muted forever, so its autoplay can
         // never be blocked and never swallows the sound.
         if (event.track && event.track.kind === 'audio') {
-          receiverLog('[Receiver] ontrack: audio track found!');
-          const audioStream = new MediaStream([event.track]);
-          audioSink.srcObject = audioStream;
-          // CRITICAL: force muted=false BEFORE setting volume and BEFORE play().
-          // Chromium (Chromecast runtime) applies autoplay restrictions lazily —
-          // if muted is still true when play() resolves, the element stays silent
-          // even after a subsequent audioSink.muted = false assignment.
-          audioSink.muted  = false;
-          audioSink.volume = requestedVolume > 0.001 ? requestedVolume : 1.0;
-          audioSink.play()
-            .then(() => receiverLog('[Receiver] audio sink playing, muted=' + audioSink.muted + ' vol=' + audioSink.volume))
-            .catch(e => receiverLog('[Receiver] audio play failed: ' + e.message));
+          audioSink.srcObject = new MediaStream([event.track]);
+          audioSink.volume = requestedVolume;
+          audioSink.muted = requestedVolume <= 0.001;
+          audioSink.play().catch(e => console.warn('[Receiver] audio play failed:', e));
           reportAudioState();
           startAudioStateReporting();
           return;
@@ -853,12 +829,9 @@
         if (!stream && event.track) stream = new MediaStream([event.track]);
         if (!stream) return;
         if (video.srcObject !== stream) {
-          receiverLog('[Receiver] ontrack: video stream source updated');
           video.srcObject = stream;
           video.muted = true; // sound comes from #audio-sink, never from here
-          video.play()
-            .then(() => receiverLog('[Receiver] video element playing'))
-            .catch(e => receiverLog('[Receiver] video play failed: ' + e.message));
+          video.play().catch(e => console.error('[Receiver] video play failed:', e));
         }
         showStream(true);
         setStatus('Mirroring live');
@@ -881,20 +854,12 @@
           case 'connected':
           case 'completed':
             setStatus('Mirroring live', 'Receiving your iPhone screen');
-            // Kick the audio sink now that ICE is established: force unmute
-            // and retry play() to recover from any autoplay suppression that
-            // may have blocked the initial play() call in ontrack.
-            if (audioSink.srcObject) {
-              audioSink.muted  = false;
-              audioSink.volume = requestedVolume > 0.001 ? requestedVolume : 1.0;
-              if (audioSink.paused) {
-                audioSink.play()
-                  .then(() => receiverLog('[Receiver] ICE connected: audio sink playing, muted=' + audioSink.muted))
-                  .catch((e) => receiverLog('[Receiver] ICE connected: audio play failed: ' + e.message));
-              } else {
-                // Already playing — just ensure unmute is applied.
-                receiverLog('[Receiver] ICE connected: audio sink already playing, muted=' + audioSink.muted);
-              }
+            // Kick the audio sink again now that the session is established —
+            // mirroring audio streams at full volume; the TV remote sets loudness.
+            if (audioSink.srcObject && requestedVolume > 0.001) {
+              audioSink.muted = false;
+              audioSink.volume = requestedVolume;
+              if (audioSink.paused) audioSink.play().catch(() => {});
             }
             reportAudioState();
             break;
