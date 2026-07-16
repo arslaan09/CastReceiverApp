@@ -447,7 +447,8 @@
     let audioStateInterval = null;
 
     // Diagnostic ping to the phone: how many audio tracks arrived and whether
-    // the mirror video is actually audible. Logged on the iOS side.
+    // the audio sink is actually playing. Logged on the iOS side.
+    let lastAudioPlayError = '';
     function reportAudioState() {
       try {
         if (!pc || !senderId) return;
@@ -456,13 +457,31 @@
           : -1;
         context.sendCustomMessage(NS, senderId, {
           type: 'AUDIO_STATE',
-          rv: 4, // receiver revision — lets the phone verify the deployed version
+          rv: 5, // receiver revision — lets the phone verify the deployed version
           audioTracks: audioTracks,
           muted: audioSink.muted,
           volume: audioSink.volume,
-          paused: audioSink.paused
+          paused: audioSink.paused,
+          playError: lastAudioPlayError || 'none'
         });
       } catch (e) { /* diagnostics only */ }
+    }
+
+    // Starts (or restarts) audio-sink playback and records any rejection so
+    // the phone can see WHY the TV is silent. Chromecast normally allows
+    // autoplay with sound, but retry on failure just in case.
+    function playAudioSink() {
+      if (!audioSink.srcObject) return;
+      audioSink.muted  = requestedVolume <= 0.001;
+      audioSink.volume = requestedVolume;
+      const p = audioSink.play();
+      if (p) p.then(() => {
+        lastAudioPlayError = '';
+      }).catch((e) => {
+        lastAudioPlayError = String(e && e.name ? e.name : e);
+        console.warn('[Receiver] audio play failed:', e);
+        setTimeout(playAudioSink, 1000); // keep retrying while a track exists
+      });
     }
 
     function startAudioStateReporting() {
@@ -815,10 +834,9 @@
         // The mirror video element stays muted forever, so its autoplay can
         // never be blocked and never swallows the sound.
         if (event.track && event.track.kind === 'audio') {
+          console.log('[Receiver] audio track received — attaching to sink');
           audioSink.srcObject = new MediaStream([event.track]);
-          audioSink.volume = requestedVolume;
-          audioSink.muted = requestedVolume <= 0.001;
-          audioSink.play().catch(e => console.warn('[Receiver] audio play failed:', e));
+          playAudioSink();
           reportAudioState();
           startAudioStateReporting();
           return;
@@ -856,11 +874,7 @@
             setStatus('Mirroring live', 'Receiving your iPhone screen');
             // Kick the audio sink again now that the session is established —
             // mirroring audio streams at full volume; the TV remote sets loudness.
-            if (audioSink.srcObject && requestedVolume > 0.001) {
-              audioSink.muted = false;
-              audioSink.volume = requestedVolume;
-              if (audioSink.paused) audioSink.play().catch(() => {});
-            }
+            if (audioSink.paused) playAudioSink();
             reportAudioState();
             break;
           case 'disconnected':
