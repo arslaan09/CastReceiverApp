@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TV Cast Receiver</title>
   <!--
-    Custom CAF receiver for Universal TV Remote (app ID 0A01ABD5).
+    Custom CAF receiver for Universal TV Remote (app ID 759927C3).
     Handles:
       • WebRTC screen mirroring (signaling over urn:x-cast:com.bdcast.webrtc)
       • Standard media casting (photos / videos / audio via cast-media-player)
@@ -230,7 +230,7 @@
       width: 280px;
       height: 280px;
       border-radius: 50%;
-      background: 
+      background:
         radial-gradient(circle at center, #1a1a2e 15%, transparent 16%),
         radial-gradient(circle at center, transparent 30%, rgba(255,255,255,0.03) 31%, transparent 32%),
         radial-gradient(circle at center, transparent 45%, rgba(255,255,255,0.03) 46%, transparent 47%),
@@ -357,7 +357,7 @@
   <img id="image-player" style="position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 9; display: none;" />
 
   <!-- Full-screen connected background image -->
-  <img id="connected-bg-img" src="TV-Connected.svg" style="position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 4; display: none;" />
+  <img id="connected-bg-img" src="cast-connected.png" style="position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 4; display: none;" />
 
   <!-- Custom Media Player for video/audio casting -->
   <video id="media-player" class="hidden" playsinline preload="auto"
@@ -531,8 +531,8 @@
       if (!connectedBg) return;
 
       const playerState = playerManager ? playerManager.getPlayerState() : null;
-      const isMediaActive = (playerState === 'PLAYING' || playerState === 'PAUSED' || playerState === 'BUFFERING') 
-        || mediaLoadInProgress 
+      const isMediaActive = (playerState === 'PLAYING' || playerState === 'PAUSED' || playerState === 'BUFFERING')
+        || mediaLoadInProgress
         || isImageActive;
 
       const isMirroringActive = !!(video.srcObject && video.classList.contains('visible'));
@@ -624,8 +624,8 @@
         
         // Media is active if the player is currently playing, paused, buffering,
         // or if we have a load request in progress or an image cast active.
-        const isMediaActive = (playerState === 'PLAYING' || playerState === 'PAUSED' || playerState === 'BUFFERING') 
-          || mediaLoadInProgress 
+        const isMediaActive = (playerState === 'PLAYING' || playerState === 'PAUSED' || playerState === 'BUFFERING')
+          || mediaLoadInProgress
           || isImageActive;
 
         const isImage = isImageActive;
